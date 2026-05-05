@@ -1,0 +1,174 @@
+---
+title: "Install dstack Server, CLI, and Agent Skills"
+description: "Set up the dstack server with uv, pip, or Docker, install and configure the CLI, then optionally add AI agent skills to automate workloads."
+---
+
+dstack is a GPU orchestration platform that runs as a server you control. This page covers how to launch the dstack server, install and configure the CLI, and optionally install agent skills so AI assistants like Claude or Codex can manage workloads on your behalf.
+
+## Launch the server
+
+The dstack server can run on your laptop or any machine that has network access to the cloud or on-prem clusters you plan to use. It requires Git and OpenSSH.
+
+<Tabs>
+  <Tab title="uv">
+    Install `dstack` using `uv` and start the server:
+
+    ```bash
+    uv tool install "dstack[all]" -U
+    dstack server
+    ```
+
+    ```
+    Applying ~/.dstack/server/config.yml...
+
+    The admin token is "bbae0f28-d3dd-4820-bf61-8f4bb40815da"
+    The server is running at http://127.0.0.1:3000/
+    ```
+
+    <Note>
+      `uv tool install` makes `dstack` available globally without activating a virtual environment. Re-run with `-U` to upgrade.
+    </Note>
+  </Tab>
+  <Tab title="pip">
+    Install `dstack` using `pip` and start the server:
+
+    ```bash
+    pip install "dstack[all]" -U
+    dstack server
+    ```
+
+    ```
+    Applying ~/.dstack/server/config.yml...
+
+    The admin token is "bbae0f28-d3dd-4820-bf61-8f4bb40815da"
+    The server is running at http://127.0.0.1:3000/
+    ```
+  </Tab>
+  <Tab title="Docker">
+    Run the dstack server as a Docker container:
+
+    ```bash
+    docker run -p 3000:3000 \
+        -v $HOME/.dstack/server/:/root/.dstack/server \
+        dstackai/dstack
+    ```
+
+    ```
+    Applying ~/.dstack/server/config.yml...
+
+    The admin token is "bbae0f28-d3dd-4820-bf61-8f4bb40815da"
+    The server is running at http://127.0.0.1:3000/
+    ```
+
+    <Note>
+      Mounting `$HOME/.dstack/server` persists server configuration and state across container restarts.
+    </Note>
+  </Tab>
+</Tabs>
+
+<Note>
+  For production deployments, systemd units, environment variables, and other server options, see the [Server deployment](/guides/server-deployment) guide.
+</Note>
+
+## Configure backends
+
+To orchestrate compute across GPU clouds or Kubernetes clusters, you need to configure backends. Backends define which cloud providers or clusters the dstack server can provision resources from.
+
+<Note>
+  See [Backends](/concepts/backends) for configuration instructions for AWS, GCP, Azure, Kubernetes, and other supported providers. When using dstack with on-prem servers only, backend configuration is not required — create [SSH fleets](/concepts/fleets#ssh-fleets) instead.
+</Note>
+
+## Install the CLI
+
+The `dstack` CLI is what you use to apply configurations, check run status, and manage fleets from your terminal. It works on Linux, macOS, and Windows and requires Git and OpenSSH.
+
+<Note>
+  If you already installed the server with `uv tool install "dstack[all]"` or `pip install "dstack[all]"`, the CLI is already available. Skip ahead to [Configure the project](#configure-the-project).
+</Note>
+
+<Tabs>
+  <Tab title="uv">
+    ```bash
+    uv tool install dstack -U
+    ```
+  </Tab>
+  <Tab title="pip">
+    ```bash
+    pip install dstack -U
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  On Windows, install [Git for Windows](https://git-scm.com/download/win) and make sure to select **Git from the command line and also from 3rd-party software** and **Use bundled OpenSSH** during installation.
+</Tip>
+
+## Configure the project
+
+When the server starts, it creates a default project named `main` and an `admin` user. Point the CLI to your running server by providing the server URL, admin token, and project name:
+
+```bash
+dstack project add \
+    --name main \
+    --url http://127.0.0.1:3000 \
+    --token bbae0f28-d3dd-4820-bf61-8f4bb40815da
+```
+
+```
+Configuration is updated at ~/.dstack/config.yml
+```
+
+This writes the connection details to `~/.dstack/config.yml`. You can run `dstack project add` again later to add connections to additional projects or remote servers.
+
+<Tip>
+  Replace the token value with the one printed by your server on startup. Each server generates a unique admin token.
+</Tip>
+
+## Install agent skills
+
+dstack provides an [agent skills package](https://skills.sh/dstackai/dstack/dstack) that teaches AI coding assistants how to use the dstack CLI and write valid configuration files. Install it with:
+
+```bash
+npx skills add dstackai/dstack
+```
+
+Once installed, AI agents like Claude, Codex, and Cursor can create and manage fleets, apply configurations, check run status, and troubleshoot provisioning issues on your behalf.
+
+```
+ ▐▛███▜▌   Claude Code v2.1.83
+▝▜█████▛▘  Opus 4.6 (1M context) · Claude Team
+  ▘▘ ▝▝    ~/skills-demo
+
+$ /dstack
+
+dstack skill loaded. How can I help? For example:
+
+  - Apply a configuration (*.dstack.yml)
+  - Check run status (dstack ps)
+  - Manage fleets, volumes, or services
+  - Create or edit a dstack configuration
+  - Troubleshoot provisioning or connectivity issues
+
+  What would you like to do?
+```
+
+<Note>
+  Skills are an optional enhancement. You can use the dstack CLI and API directly without them.
+</Note>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Create your first fleet and submit a dev environment, task, or service run
+  </Card>
+  <Card title="Backends" icon="cloud" href="/concepts/backends">
+    Connect AWS, GCP, Azure, Kubernetes, and other GPU cloud providers
+  </Card>
+  <Card title="Server deployment" icon="server" href="/guides/server-deployment">
+    Configure the server for production with systemd, environment variables, and TLS
+  </Card>
+  <Card title="Fleets" icon="layer-group" href="/concepts/fleets">
+    Understand fleet types, placement strategies, and SSH fleet configuration
+  </Card>
+</CardGroup>

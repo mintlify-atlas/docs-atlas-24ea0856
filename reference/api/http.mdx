@@ -1,0 +1,356 @@
+---
+title: "HTTP REST API reference for the dstack server"
+description: "Reference for the dstack HTTP REST API. Authenticate with a Bearer token, then list, submit, stop, and delete runs via JSON endpoints with curl examples."
+---
+
+The dstack server exposes a JSON REST API that underpins both the CLI and the Python SDK. You can call it directly from any HTTP client. All endpoints accept and return JSON; request bodies and response bodies are UTF-8 encoded.
+
+## Base URL
+
+The API is served at the root of your dstack server. For a local installation the base URL is typically `http://localhost:3000`. For dstack Sky it is `https://sky.dstack.ai`.
+
+```
+http://localhost:3000
+```
+
+## Authentication
+
+All API endpoints (except public OAuth helper endpoints) require a user token. Pass it as a `Authorization` header with the `Bearer` scheme.
+
+```bash
+curl -s http://localhost:3000/api/runs/list \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+You can find your token in `~/.dstack/config.yml` after running `dstack init`, or generate one from the dstack UI under **Settings → Users**.
+
+<Note>
+  Omitting the `Authorization` header returns `403 Forbidden`. An invalid token returns `403 Forbidden` as well.
+</Note>
+
+---
+
+## Runs
+
+### List runs
+
+Returns all runs visible to the authenticated user, sorted by descending `submitted_at`. Supports filtering by project, repo, user, and active status. Results are paginated at up to 100 runs per page.
+
+**`POST /api/runs/list`**
+
+#### Request body
+
+<ParamField body="project_name" type="string">
+  Filter to a specific project. When omitted, returns runs across all projects accessible to the user.
+</ParamField>
+
+<ParamField body="repo_id" type="string">
+  Filter by repository ID. Has no effect when `project_name` is not also specified.
+</ParamField>
+
+<ParamField body="username" type="string">
+  Filter by the submitting user's username.
+</ParamField>
+
+<ParamField body="only_active" type="boolean" default="false">
+  When `true`, excludes finished and deleted runs.
+</ParamField>
+
+<ParamField body="include_jobs" type="boolean" default="true">
+  Whether to include the `jobs` array in each run object.
+</ParamField>
+
+<ParamField body="job_submissions_limit" type="number">
+  Limit the number of job submissions returned per job. Drops older submissions. Has no effect when `include_jobs` is `false`.
+</ParamField>
+
+<ParamField body="limit" type="number" default="100">
+  Page size. Must be between `0` and `100` inclusive.
+</ParamField>
+
+<ParamField body="ascending" type="boolean" default="false">
+  Return results in ascending submission order.
+</ParamField>
+
+<ParamField body="prev_submitted_at" type="string">
+  ISO 8601 timestamp of the last run on the previous page. Use with `prev_run_id` for pagination.
+</ParamField>
+
+<ParamField body="prev_run_id" type="string">
+  UUID of the last run on the previous page.
+</ParamField>
+
+#### Example
+
+```bash
+curl -s http://localhost:3000/api/runs/list \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_name": "main",
+    "only_active": true,
+    "limit": 10
+  }'
+```
+
+<ResponseField name="[]" type="Run[]">
+  Array of run objects sorted by descending `submitted_at`.
+</ResponseField>
+
+---
+
+### Get a run
+
+Returns a single run by name or UUID. Deleted runs are only returned when queried by UUID.
+
+**`POST /api/project/{project_name}/runs/get`**
+
+#### Path parameters
+
+<ParamField path="project_name" type="string" required>
+  The project that owns the run.
+</ParamField>
+
+#### Request body
+
+<ParamField body="run_name" type="string">
+  The run name. Does not return deleted runs.
+</ParamField>
+
+<ParamField body="id" type="string">
+  Run UUID. Returns deleted runs.
+</ParamField>
+
+<Note>
+  Provide either `run_name` or `id`. At least one is required.
+</Note>
+
+#### Example
+
+```bash
+curl -s http://localhost:3000/api/project/main/runs/get \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"run_name": "my-awesome-run"}'
+```
+
+<ResponseField name="run" type="Run">
+  The run object.
+</ResponseField>
+
+---
+
+### Get a run plan
+
+Computes a run plan for the given run spec without submitting the run. Use this to preview instance offers and costs before committing.
+
+**`POST /api/project/{project_name}/runs/get_plan`**
+
+#### Path parameters
+
+<ParamField path="project_name" type="string" required>
+  The project to plan the run in.
+</ParamField>
+
+#### Request body
+
+<ParamField body="run_spec" type="object" required>
+  The run specification. Must include a `configuration` object (task, service, or dev environment) and `repo_id`.
+</ParamField>
+
+<ParamField body="max_offers" type="number">
+  Maximum number of instance offers to return in the plan. Between 1 and 10,000.
+</ParamField>
+
+#### Example
+
+```bash
+curl -s http://localhost:3000/api/project/main/runs/get_plan \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_spec": {
+      "run_name": "my-plan",
+      "repo_id": "None",
+      "configuration": {
+        "type": "task",
+        "commands": ["echo hello"],
+        "resources": {"gpu": {"memory": "24GB"}}
+      }
+    },
+    "max_offers": 50
+  }'
+```
+
+<ResponseField name="run_plan" type="RunPlan">
+  The computed plan, including `job_plans` with instance offers and estimated costs. Pass to `/apply`.
+</ResponseField>
+
+---
+
+### Apply a run plan
+
+Creates a new run or updates an existing one using a previously computed `RunPlan`. If the existing run is active and cannot be updated in-place, stop it first.
+
+**`POST /api/project/{project_name}/runs/apply`**
+
+#### Path parameters
+
+<ParamField path="project_name" type="string" required>
+  The project to apply the plan in.
+</ParamField>
+
+#### Request body
+
+<ParamField body="plan" type="object" required>
+  A `RunPlan` object returned by `/get_plan`.
+</ParamField>
+
+<ParamField body="force" type="boolean" required>
+  When `true`, applies the plan even if the server-side state differs from what was planned. Useful when the cluster state changed between planning and applying.
+</ParamField>
+
+#### Example
+
+```bash
+# First, capture the plan
+PLAN=$(curl -s http://localhost:3000/api/project/main/runs/get_plan \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_spec": {
+      "run_name": "my-run",
+      "repo_id": "None",
+      "configuration": {"type": "task", "commands": ["echo hello"]}
+    }
+  }')
+
+# Then apply it
+curl -s http://localhost:3000/api/project/main/runs/apply \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"plan\": $PLAN, \"force\": false}"
+```
+
+<ResponseField name="run" type="Run">
+  The submitted or updated run object.
+</ResponseField>
+
+---
+
+### Stop runs
+
+Stop one or more runs by name. Supports both graceful shutdown and immediate abort.
+
+**`POST /api/project/{project_name}/runs/stop`**
+
+#### Path parameters
+
+<ParamField path="project_name" type="string" required>
+  The project that owns the runs.
+</ParamField>
+
+#### Request body
+
+<ParamField body="runs_names" type="string[]" required>
+  List of run names to stop.
+</ParamField>
+
+<ParamField body="abort" type="boolean" required>
+  When `true`, terminates the instance immediately without waiting for a graceful shutdown.
+</ParamField>
+
+#### Example
+
+```bash
+curl -s http://localhost:3000/api/project/main/runs/stop \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "runs_names": ["my-awesome-run"],
+    "abort": false
+  }'
+```
+
+A `200 OK` with an empty body indicates success.
+
+---
+
+### Delete runs
+
+Delete one or more stopped runs. Runs must be stopped before they can be deleted.
+
+**`POST /api/project/{project_name}/runs/delete`**
+
+#### Path parameters
+
+<ParamField path="project_name" type="string" required>
+  The project that owns the runs.
+</ParamField>
+
+#### Request body
+
+<ParamField body="runs_names" type="string[]" required>
+  List of run names to delete.
+</ParamField>
+
+#### Example
+
+```bash
+curl -s http://localhost:3000/api/project/main/runs/delete \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"runs_names": ["my-awesome-run"]}'
+```
+
+A `200 OK` with an empty body indicates success.
+
+<Warning>
+  Deleting a run that is still active returns an error. Call `/stop` first and wait for the run status to reach a terminal state (`terminated`, `aborted`, `failed`, or `done`).
+</Warning>
+
+---
+
+## Error responses
+
+All endpoints use standard HTTP status codes. Error bodies follow a consistent shape.
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Bad request — malformed JSON or failed field validation |
+| `403` | Forbidden — missing, invalid, or insufficient-scope token |
+| `404` | Not found — the referenced project or run does not exist |
+| `500` | Internal server error |
+
+```json
+{
+  "detail": "Run not found"
+}
+```
+
+---
+
+## Pagination
+
+List endpoints support cursor-based pagination. After receiving a page of results, pass the `submitted_at` and `id` fields from the **last** item in the array as `prev_submitted_at` and `prev_run_id` in the next request.
+
+```bash
+# First page
+curl -s http://localhost:3000/api/runs/list \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"project_name": "main", "limit": 10}'
+
+# Next page — using values from the last run in the previous response
+curl -s http://localhost:3000/api/runs/list \
+  -H "Authorization: Bearer $DSTACK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_name": "main",
+    "limit": 10,
+    "prev_submitted_at": "2024-03-15T12:34:56.789000Z",
+    "prev_run_id": "01234567-89ab-cdef-0123-456789abcdef"
+  }'
+```

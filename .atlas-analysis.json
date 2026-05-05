@@ -1,24 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "dstack",
+  "projectType": "infrastructure",
+  "projectName": "dstack",
+  "projectDescription": "Vendor-agnostic GPU orchestration platform for running training, inference, and agentic workloads across clouds, Kubernetes, and bare metal.",
   "theme": "aspen",
-  "colors": {
-    "primary": "#2d9dc7",
-    "light": "#0f1622",
-    "dark": "#cf4dd4"
-  },
-  "favicon": "/favicon.svg",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/dstackai/dstack"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/dstackai/dstack"
-    }
-  },
+  "primaryColor": "#2d9dc7",
+  "lightColor": "#0f1622",
+  "darkColor": "#cf4dd4",
   "navigation": {
     "tabs": [
       {
@@ -99,5 +86,38 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Multi-cloud GPU provisioning across AWS, GCP, Azure, Lambda, Nebius, and more",
+    "Kubernetes and bare-metal SSH fleet support",
+    "Dev environments with VS Code/JupyterLab integration",
+    "Distributed training tasks with multi-node support",
+    "Scalable model serving with auto-scaling and HTTPS gateways",
+    "Persistent volumes for model and data caching",
+    "NVIDIA, AMD, Google TPU, and Tenstorrent accelerator support",
+    "AI agent skills for automated fleet and workload management",
+    "Python API and REST HTTP API"
+  ],
+  "publicApiSurface": [
+    "dstack apply",
+    "dstack server",
+    "dstack ps",
+    "dstack logs",
+    "dstack fleet",
+    "dstack volume",
+    "dstack gateway",
+    "dstack stop",
+    "dstack delete",
+    "dstack offer",
+    "dstack project add",
+    "dstack.api.Client",
+    "dstack.api.Run",
+    "dstack.api.RunConfiguration",
+    "type: fleet (YAML)",
+    "type: dev-environment (YAML)",
+    "type: task (YAML)",
+    "type: service (YAML)",
+    "type: volume (YAML)",
+    "type: gateway (YAML)"
+  ]
 }

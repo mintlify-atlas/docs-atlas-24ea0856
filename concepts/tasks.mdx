@@ -1,0 +1,577 @@
+---
+title: "Tasks: GPU Training and Batch Processing in dstack"
+description: "Tasks run commands on one or more nodes for training and batch workloads. Learn single-node tasks, distributed multi-node jobs, port forwarding, and retry."
+---
+
+A task runs arbitrary commands on one or more nodes. Tasks are best suited for jobs like model training, fine-tuning, and batch data processing — workloads that run to completion rather than serving ongoing requests.
+
+<Info>
+  Before running a task, make sure you have [installed](/installation) the server and CLI, and created a [fleet](/concepts/fleets).
+</Info>
+
+## Create a task
+
+Define a task configuration in a YAML file. The filename must end with `.dstack.yml` (e.g., `train.dstack.yml`).
+
+```yaml .dstack.yml
+type: task
+# Name is optional; generated randomly if omitted
+name: trl-sft
+
+python: "3.12"
+
+# Uncomment to use a custom Docker image
+#image: huggingface/trl-latest-gpu
+
+env:
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  # One to two H100 GPUs
+  gpu: H100:1..2
+  shm_size: 24GB
+```
+
+Pass the configuration to `dstack apply`:
+
+```shell
+$ dstack apply -f .dstack.yml
+
+ #  BACKEND  REGION    RESOURCES                    SPOT  PRICE
+ 1  runpod   CA-MTL-1  18xCPU, 100GB, A5000:24GB:2  yes   $0.22
+ 2  runpod   EU-SE-1   18xCPU, 100GB, A5000:24GB:2  yes   $0.22
+ 3  gcp      us-west4  27xCPU, 150GB, A5000:24GB:3  yes   $0.33
+
+Submit the run trl-sft? [y/n]: y
+
+Launching `trl-sft`...
+---> 100%
+
+{'loss': 1.4967, 'grad_norm': 1.2734375, 'learning_rate': 1.0000000000000002e-06, 'epoch': 0.0}
+  0% 1/24680 [00:13<95:34:17, 13.94s/it]
+  6% 73/1300 [00:48<13:57,  1.47it/s]
+```
+
+dstack automatically provisions instances and runs the task. If `commands` are not specified, dstack runs the image's entrypoint.
+
+## Configuration options
+
+### Ports
+
+When a task exposes an application port, `dstack apply` forwards it to your local machine via secure port forwarding:
+
+```yaml .dstack.yml
+type: task
+name: streamlit-hello
+
+python: "3.12"
+
+commands:
+  - uv pip install streamlit
+  - streamlit hello
+
+ports:
+  - 8501
+```
+
+When running this task, `dstack apply` forwards port `8501` to `localhost:8501`, giving you secure local access to the running application.
+
+### Distributed tasks
+
+By default, a task runs on a single node. Set `nodes` to run across a cluster:
+
+```yaml examples/distributed-training/torchrun/.dstack.yml
+type: task
+name: train-distrib
+
+nodes: 2
+
+python: "3.12"
+env:
+  - NCCL_DEBUG=INFO
+commands:
+  - git clone https://github.com/pytorch/examples.git pytorch-examples
+  - cd pytorch-examples/distributed/ddp-tutorial-series
+  - uv pip install -r requirements.txt
+  - |
+    torchrun \
+      --nproc-per-node=$DSTACK_GPUS_PER_NODE \
+      --node-rank=$DSTACK_NODE_RANK \
+      --nnodes=$DSTACK_NODES_NUM \
+      --master-addr=$DSTACK_MASTER_NODE_IP \
+      --master-port=12345 \
+      multinode.py 50 10
+
+resources:
+  gpu: 24GB:1..2
+  shm_size: 24GB
+```
+
+<Info>
+  To submit a distributed task, you must have at least one fleet with [cluster placement](/concepts/fleets#cluster-placement).
+</Info>
+
+Jobs on each node communicate using private IP addresses. Use the system environment variables `DSTACK_MASTER_NODE_IP`, `DSTACK_NODES_IPS`, `DSTACK_NODE_RANK`, and others for inter-node coordination.
+
+dstack works with `accelerate`, `torchrun`, Ray, Spark, and any other distributed framework.
+
+<Accordion title="Specifying the network interface">
+  Distributed frameworks usually detect the correct network interface automatically. If you need to specify it explicitly (e.g., for PyTorch + NCCL):
+
+  ```yaml
+  commands:
+    - apt-get install -y iproute2
+    - >
+      if [[ $DSTACK_NODE_RANK == 0 ]]; then
+        export NCCL_SOCKET_IFNAME=$(ip -4 -o addr show | fgrep $DSTACK_MASTER_NODE_IP | awk '{print $2}')
+      else
+        export NCCL_SOCKET_IFNAME=$(ip route get $DSTACK_MASTER_NODE_IP | sed -E 's/.*?dev (\S+) .*/\1/;t;d')
+      fi
+    # ... rest of commands
+  ```
+</Accordion>
+
+<Accordion title="SSH between nodes">
+  From any node, you can SSH to any other node on port 10022 using the `~/.ssh/dstack_job` key. `~/.ssh/config` is pre-configured so a simple `ssh <node_ip>` works. Check `DSTACK_NODES_IPS` for the list of node IPs.
+</Accordion>
+
+### Resources
+
+Specify exact values or ranges. Ranges use `..` as separator (e.g., `24GB..` means at least 24 GB).
+
+```yaml .dstack.yml
+type: task
+name: trl-sft
+
+python: "3.12"
+
+env:
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  # 16 or more x86_64 cores
+  cpu: 16..
+  # 200 GB or more RAM
+  memory: 200GB..
+  # 4 GPUs from 40 GB to 80 GB
+  gpu: 40GB..80GB:4
+  # Shared memory (required for multi-GPU)
+  shm_size: 24GB
+  # Disk size
+  disk: 500GB
+```
+
+The `cpu` property accepts architecture and count — e.g., `x86:16` or `arm:8..`. The `gpu` property accepts vendor, model, memory, and count — e.g., `nvidia`, `A100`, `A100:80GB`, `A100:2`, or `24GB..40GB:2`.
+
+<Accordion title="Shared memory">
+  If you use parallel communicating processes (e.g., PyTorch dataloaders), configure `shm_size` (e.g., `24GB`) to increase the shared memory inside the container.
+</Accordion>
+
+### Docker
+
+#### Default image
+
+When `image` is not specified, dstack uses its [base Docker image](https://github.com/dstackai/dstack/tree/master/docker/base), which includes `uv`, `python`, `pip`, CUDA drivers, `mpirun`, and NCCL tests. Set `python` to pre-install a specific version:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+python: "3.12"
+
+env:
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  gpu: H100:1..2
+  shm_size: 24GB
+```
+
+#### NVCC
+
+Set `nvcc: true` to include the CUDA compiler, needed for building custom kernels:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+python: "3.12"
+nvcc: true
+
+env:
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - uv pip install flash_attn --no-build-isolation
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --attn_implementation=flash_attention_2 \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  gpu: H100:1
+```
+
+#### Custom image
+
+Specify a Docker image with `image`. For custom images, dstack uses `sh` as the default shell; set `shell: bash` if needed:
+
+```yaml .dstack.yml
+type: task
+name: trl-sft
+
+image: huggingface/trl-latest-gpu
+
+env:
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+# Use bash for custom images if needed
+shell: bash
+
+commands:
+  - source activate trl
+  - |
+    trl sft --model_name_or_path $MODEL \
+        --dataset_name $DATASET \
+        --output_dir /output \
+        --torch_dtype bfloat16 \
+        --use_peft true
+
+resources:
+  gpu: H100:1
+```
+
+#### Docker in Docker
+
+Set `docker: true` to enable the Docker CLI inside the task:
+
+```yaml .dstack.yml
+type: task
+name: docker-nvidia-smi
+
+docker: true
+
+commands:
+  - docker run --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi
+
+resources:
+  gpu: 1
+```
+
+Cannot be used with `python` or `image`. Not supported on `runpod`, `vastai`, or `kubernetes`.
+
+#### Private registry
+
+Use `registry_auth` to pull from a private registry:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+env:
+  - NGC_API_KEY
+
+image: nvcr.io/nvidia/pytorch:25.05-py3
+registry_auth:
+  username: $oauthtoken
+  password: ${{ env.NGC_API_KEY }}
+
+commands:
+  - git clone https://github.com/pytorch/examples.git pytorch-examples
+  - cd pytorch-examples/distributed/ddp-tutorial-series
+  - pip install -r requirements.txt
+  - |
+    torchrun \
+      --nproc-per-node=$DSTACK_GPUS_PER_NODE \
+      --nnodes=$DSTACK_NODES_NUM \
+      multinode.py 50 10
+
+resources:
+  gpu: H100:1..2
+  shm_size: 24GB
+```
+
+### Environment variables
+
+```yaml .dstack.yml
+type: task
+name: trl-sft
+
+python: "3.12"
+
+env:
+  - HF_TOKEN
+  - HF_HUB_ENABLE_HF_TRANSFER=1
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  gpu: H100:1
+```
+
+Variables without a value (e.g., `HF_TOKEN`) must be passed via the CLI or set in the current process.
+
+<Accordion title="System environment variables">
+  The following variables are available in every run by default:
+
+  | Name | Description |
+  |------|-------------|
+  | `DSTACK_RUN_NAME` | The name of the run |
+  | `DSTACK_REPO_ID` | The ID of the repo |
+  | `DSTACK_GPUS_NUM` | Total number of GPUs in the run |
+  | `DSTACK_NODES_NUM` | Number of nodes in the run |
+  | `DSTACK_GPUS_PER_NODE` | Number of GPUs per node |
+  | `DSTACK_NODE_RANK` | Rank of the current node |
+  | `DSTACK_MASTER_NODE_IP` | Internal IP address of the master node |
+  | `DSTACK_NODES_IPS` | Internal IPs of all nodes, newline-delimited |
+  | `DSTACK_MPI_HOSTFILE` | Path to a pre-populated MPI hostfile |
+  | `DSTACK_WORKING_DIR` | Working directory of the run |
+  | `DSTACK_REPO_DIR` | Directory where the repo is mounted (if any) |
+</Accordion>
+
+### Files
+
+Mount local files into the container with the `files` property:
+
+```yaml examples/.dstack.yml
+type: task
+name: trl-sft
+
+files:
+  - .:examples            # Maps the .dstack.yml directory to <working dir>/examples
+  - ~/.ssh/id_rsa:/root/.ssh/id_rsa
+
+python: "3.12"
+
+env:
+  - HF_TOKEN
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  gpu: H100:1
+```
+
+<Accordion title="File size limit">
+  Each entry is limited to 2 MB. Exclude unnecessary files with `.gitignore` or `.dstackignore`. You can raise the limit by setting `DSTACK_SERVER_CODE_UPLOAD_LIMIT`.
+</Accordion>
+
+### Repos
+
+Clone a local or remote Git repo into the container:
+
+```yaml examples/.dstack.yml
+type: task
+name: trl-sft
+
+repos:
+  # Clone the repo from the parent directory to <working dir>
+  - ..
+
+python: "3.12"
+
+env:
+  - HF_TOKEN
+  - MODEL=Qwen/Qwen2.5-0.5B
+  - DATASET=stanfordnlp/imdb
+
+commands:
+  - uv pip install trl
+  - |
+    trl sft \
+      --model_name_or_path $MODEL --dataset_name $DATASET \
+      --num_processes $DSTACK_GPUS_PER_NODE
+
+resources:
+  gpu: H100:1
+```
+
+<Accordion title="Custom clone directory">
+  Override the clone location:
+
+  ```yaml
+  repos:
+    - ..:/my-repo
+  ```
+
+  If the target directory is not empty, the run fails unless you set `if_exists: skip`.
+</Accordion>
+
+<Accordion title="Clone from a URL">
+  ```yaml
+  repos:
+    - https://github.com/dstackai/dstack
+  ```
+</Accordion>
+
+### Retry policy
+
+By default, dstack fails on no capacity, task error, or interruption. Configure `retry` to retry automatically:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+python: "3.12"
+
+commands:
+  - uv pip install -r fine-tuning/qlora/requirements.txt
+  - python fine-tuning/qlora/train.py
+
+retry:
+  on_events: [no-capacity, error, interruption]
+  # Retry for up to 1 hour
+  duration: 1h
+```
+
+If one job in a multi-node task fails with retry enabled, dstack stops all jobs and resubmits the entire run.
+
+### Priority
+
+Set `priority` (an integer) to influence scheduling order when compute is limited. Higher priority runs are scheduled first, but a high-priority run that cannot be scheduled does not block lower-priority runs:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+python: "3.12"
+
+commands:
+  - uv pip install -r fine-tuning/qlora/requirements.txt
+  - python fine-tuning/qlora/train.py
+
+priority: 50
+```
+
+### Utilization policy
+
+Set a policy to auto-terminate if GPU utilization stays below a threshold:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+python: "3.12"
+commands:
+  - uv pip install -r fine-tuning/qlora/requirements.txt
+  - python fine-tuning/qlora/train.py
+
+resources:
+  gpu: H100:8
+
+utilization_policy:
+  min_gpu_utilization: 10
+  time_window: 1h
+```
+
+### Schedule
+
+Start a task on a recurring schedule using cron syntax (UTC):
+
+```yaml .dstack.yml
+type: task
+name: train
+
+python: "3.12"
+commands:
+  - uv pip install -r fine-tuning/qlora/requirements.txt
+  - python fine-tuning/qlora/train.py
+
+resources:
+  gpu: H100:8
+
+schedule:
+  cron: "15 23 * * *"  # Every day at 23:15 UTC
+```
+
+<Accordion title="Cron syntax reference">
+  dstack uses POSIX cron syntax. Days of the week start from Monday (`0` = Monday).
+
+  ```
+  ┌───────────── minute (0-59)
+  │ ┌───────────── hour (0-23)
+  │ │ ┌───────────── day of the month (1-31)
+  │ │ │ ┌───────────── month (1-12 or jan-dec)
+  │ │ │ │ ┌───────────── day of the week (0-6 or mon-sun)
+  * * * * *
+  ```
+
+  | Operator | Description | Example |
+  |----------|-------------|---------|
+  | `*` | Any value | `0 * * * *` — every hour at minute 0 |
+  | `,` | Value list | `15,45 10 * * *` — at 10:15 and 10:45 |
+  | `-` | Range | `0 1-3 * * *` — at 1:00, 2:00, 3:00 |
+  | `/` | Step | `*/10 8-10 * * *` — every 10 min, 8:00–10:59 |
+</Accordion>
+
+### Spot policy
+
+By default, dstack uses on-demand instances. Set `spot_policy` to `spot`, `on-demand`, or `auto`:
+
+```yaml .dstack.yml
+type: task
+name: train
+
+spot_policy: auto
+```
+
+<Info>
+  Tasks support additional options including `backends`, `regions`, `max_price`, and `max_duration`. See the [task reference](https://dstack.ai/docs/reference/dstack.yml/task) for the full list.
+</Info>
+
+<CardGroup cols={2}>
+  <Card title="Dev environments" href="/concepts/dev-environments" icon="laptop">
+    Run interactive cloud development sessions.
+  </Card>
+  <Card title="Services" href="/concepts/services" icon="globe">
+    Deploy models as scalable endpoints.
+  </Card>
+  <Card title="Fleets" href="/concepts/fleets" icon="server">
+    Manage the compute instances that run your tasks.
+  </Card>
+  <Card title="Volumes" href="/concepts/volumes" icon="database">
+    Persist data between task runs.
+  </Card>
+</CardGroup>

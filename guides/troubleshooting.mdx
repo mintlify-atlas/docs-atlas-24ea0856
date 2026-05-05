@@ -1,0 +1,185 @@
+---
+title: "Troubleshooting Runs, Fleets, and Services in dstack"
+description: "Diagnose dstack issues: no fleets, no offers, provisioning failures, spot interruptions, and service errors. Use logs and CLI flags to find the root cause."
+---
+
+Most `dstack` issues fall into a small number of categories: missing or misconfigured fleets, resource requirements that don't match available instances, provisioning failures caused by cloud quotas, and run-time errors that show up only in logs. This guide walks through each category with concrete steps to isolate and fix the problem.
+
+## Reading logs
+
+Logs are the first place to look when something goes wrong. `dstack` exposes logs at two levels.
+
+**Server logs** — set `DSTACK_SERVER_LOG_LEVEL=DEBUG` before starting the server to get verbose output. The default level is `INFO`.
+
+**CLI logs** — stored in `~/.dstack/logs/cli` at `DEBUG` level by default. Check these when a CLI command behaves unexpectedly.
+
+When reporting an issue, include the relevant log output as text (not screenshots), the steps to reproduce, and your configuration. See [well-reported issue examples](https://github.com/dstackai/dstack/issues/1640) for reference.
+
+<Note>
+  Report bugs as [GitHub issues](https://github.com/dstackai/dstack/issues/new/choose). For questions, use the [Discord server](https://discord.gg/u8SmfwPpMd).
+</Note>
+
+## No fleets
+
+If `dstack apply` shows a `No fleets` status, the cause is one of two things:
+
+<Tabs>
+  <Tab title="The project has no fleets">
+    Create a fleet before submitting runs. Use a [backend fleet](/concepts/fleets#backend-fleets) if you are working with a cloud provider or Kubernetes, or an [SSH fleet](/concepts/fleets#ssh-fleets) for on-prem servers.
+
+    <Note>
+      Creating a backend fleet does not necessarily require provisioning instances upfront. If you set `nodes` to a range, `dstack` will provision instances on demand. See [backend fleets](/concepts/fleets#backend-fleets) for examples.
+    </Note>
+  </Tab>
+  <Tab title="No matching fleet found">
+    Fleets exist but the run requirements do not match any fleet configuration. Review your fleet and run configurations to ensure they are compatible.
+  </Tab>
+</Tabs>
+
+## No offers
+
+If `dstack apply` finds no instance offers, `dstack` could not locate instances that satisfy your configuration's requirements. Use `dstack offer` to inspect what is available:
+
+```bash
+# All matching offers, ignoring fleet configurations
+dstack offer --gpu H100
+
+# Offers available through a specific fleet
+dstack offer --gpu H100 --fleet my-fleet
+```
+
+The causes below cover the most common reasons for an empty offer list.
+
+<AccordionGroup>
+  <Accordion title="Cause 1: No backends configured">
+    If you are not using SSH fleets, configure at least one [backend](/concepts/backends). If a backend is configured but not working, check the `dstack server` output for backend configuration errors.
+
+    You can also see the list of successfully configured backends on the project settings page in the UI.
+  </Accordion>
+
+  <Accordion title="Cause 2: Requirements mismatch">
+    When you apply a configuration, `dstack` filters offers against `resources`, `backends`, `regions`, `availability_zones`, `instance_types`, `spot_policy`, and `max_price`. All conditions must be satisfied simultaneously. Common mistakes include specifying regions that don't exist in the chosen backend, or instance types that don't match the resource requirements.
+  </Accordion>
+
+  <Accordion title="Cause 3: Requirements too specific">
+    Setting an exact value (for example, `cpu: 5`) only matches instances with that exact count. Use ranges instead: `cpu: 4..8` matches instances with 4 to 8 CPUs, and `memory: 10GB..` matches instances with at least 10 GB of memory.
+  </Accordion>
+
+  <Accordion title="Cause 4: Default resource minimums">
+    By default, `dstack` uses `cpu: 2..`, `memory: 8GB..`, and `disk: 100GB..`. To use smaller instances, override these properties explicitly in your configuration.
+  </Accordion>
+
+  <Accordion title="Cause 5: GPU requirements">
+    By default, `dstack` only selects instances with no GPU or a single NVIDIA GPU. To use non-NVIDIA GPUs or multi-GPU instances, set the `gpu` property explicitly. Examples:
+
+    - `gpu: amd` — one AMD GPU
+    - `gpu: A10:4..8` — 4 to 8 A10 GPUs
+    - `gpu: 8:Gaudi2` — 8 Gaudi2 accelerators
+  </Accordion>
+
+  <Accordion title="Cause 6: Network volume constraints">
+    If your run uses [network volumes](/concepts/volumes#network-volumes), `dstack` restricts offers to the same backend and region as the volume. For AWS, the availability zone of the volume and the instance must also match.
+  </Accordion>
+
+  <Accordion title="Cause 7: Feature not supported by backend">
+    Some features are only available on certain backends:
+
+    - **Backend fleets**, **instance volumes**, and **privileged containers** are supported by all backends except `runpod`, `vastai`, and `kubernetes`.
+    - **Clusters** and **distributed tasks** are only supported by `aws`, `azure`, `gcp`, `nebius`, `oci`, `vultr`, and SSH fleets.
+    - **Reservations** are only supported by `aws` and `gcp`.
+  </Accordion>
+
+  <Accordion title="Cause 8: Insufficient dstack Sky balance">
+    If you are using [dstack Sky](https://sky.dstack.ai), marketplace offers will not appear until you top up your balance. Alternatively, configure your own cloud accounts on the project settings page or use SSH fleets.
+  </Accordion>
+</AccordionGroup>
+
+## Provisioning fails
+
+If `dstack apply` shows offers but then fails with a message like:
+
+```
+wet-mangust-1 provisioning completed (failed)
+All provisioning attempts failed. This is likely due to cloud providers not having enough capacity. Check CLI and server logs for more details.
+```
+
+the most common cause is an insufficient service quota. Cloud providers like AWS, GCP, Azure, and OCI often require you to request a quota increase before you can use specific instance types. Check the quota management page in your cloud provider's console (e.g. AWS Service Quotas, GCP IAM quotas, Azure Subscriptions &gt; Usage + quotas).
+
+## Run starts but fails
+
+If a run is provisioned successfully but then terminates unexpectedly, use the following CLI flags to investigate:
+
+- `dstack ps --verbose` (or `-v`) — shows the run status and the termination reason
+- `dstack logs --diagnose` (or `-d`) — shows logs from the run executor, which contain low-level failure details
+
+<AccordionGroup>
+  <Accordion title="Cause: Spot interruption">
+    If the termination reason is `INTERRUPTED_BY_NO_CAPACITY`, the run was using a spot instance that was reclaimed by the cloud provider. To address this:
+
+    - Set `spot_policy: on-demand` in your configuration to use on-demand instances instead.
+    - Add a `retry` policy so `dstack` automatically re-submits the run after an interruption.
+  </Accordion>
+</AccordionGroup>
+
+## Services fail to start
+
+<AccordionGroup>
+  <Accordion title="Cause: Gateway misconfiguration">
+    If all services fail to start against a specific gateway, verify that a [correct DNS record](/concepts/gateways#update-dns-records) pointing to the gateway's hostname is configured and has propagated.
+  </Accordion>
+</AccordionGroup>
+
+## Service endpoint returns 403
+
+If the service endpoint returns a `403` error, the request is missing the `Authorization` header. See [accessing the endpoint](/concepts/services#access-the-endpoint) for the required header format and how to obtain the correct `dstack` token.
+
+## Cannot access dev environment or task ports
+
+<AccordionGroup>
+  <Accordion title="Cause 1: Detached from run">
+    When a dev environment or task has configured ports, `dstack apply` automatically forwards those remote ports to `localhost` via SSH. If you interrupt the command, the forwarding stops. Reattach with:
+
+    ```bash
+    dstack attach <run-name>
+    ```
+  </Accordion>
+  <Accordion title="Cause 2: Running on Windows without WSL">
+    If you are using the CLI on Windows, run it through WSL 2. Follow [these instructions](https://github.com/dstackai/dstack/issues/1644#issuecomment-2321559265) to set up the WSL environment. Native Windows support is planned.
+  </Accordion>
+</AccordionGroup>
+
+## SSH fleet fails to provision
+
+If an SSH fleet fails to provision after a long wait:
+
+<Steps>
+  <Step title="Check the server logs">
+    Look for errors in the `dstack server` output. Set `DSTACK_SERVER_LOG_LEVEL=DEBUG` for more detail.
+  </Step>
+  <Step title="Inspect the shim log on each host">
+    SSH into each host used to create the fleet and read:
+
+    ```bash
+    cat /root/.dstack/shim.log
+    ```
+
+    This log contains the output of the dstack agent running on the host and is usually where the root cause appears.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Server deployment" icon="server" href="/guides/server-deployment">
+    Configure the dstack server, PostgreSQL, log storage, and encryption for production.
+  </Card>
+  <Card title="Backends" icon="cloud" href="/concepts/backends">
+    Set up cloud provider backends so dstack can provision instances on your behalf.
+  </Card>
+  <Card title="Fleets" icon="layer-group" href="/concepts/fleets">
+    Create backend or SSH fleets to match the resource requirements of your runs.
+  </Card>
+  <Card title="Community" icon="discord" href="https://discord.gg/u8SmfwPpMd">
+    Ask questions and get help from the dstack team and community on Discord.
+  </Card>
+</CardGroup>

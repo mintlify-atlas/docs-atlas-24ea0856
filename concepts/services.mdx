@@ -1,0 +1,613 @@
+---
+title: "Services: Deploy Models and Web Apps as Endpoints in dstack"
+description: "Services run models or web apps as HTTP endpoints with auth and scaling. Configure replicas, gateways, rate limits, health probes, and rolling deployments."
+---
+
+Services deploy models or web apps as secure, scalable endpoints. Unlike tasks that run to completion, services run continuously and handle incoming HTTP requests. They integrate with [gateways](/concepts/gateways) for HTTPS, custom domains, auto-scaling, and rate limiting.
+
+<Info>
+  Before running a service, make sure you have [installed](/installation) the server and CLI, and created a [fleet](/concepts/fleets).
+</Info>
+
+## Create a service
+
+Define a service configuration in a YAML file ending with `.dstack.yml`.
+
+<Tabs>
+  <Tab title="NVIDIA">
+    ```yaml .dstack.yml
+    type: service
+    name: qwen36
+
+    image: lmsysorg/sglang:v0.5.10.post1
+
+    commands:
+      - |
+        sglang serve \
+          --model-path Qwen/Qwen3.6-27B \
+          --host 0.0.0.0 \
+          --port 30000 \
+          --tp $DSTACK_GPUS_NUM \
+          --mem-fraction-static 0.8 \
+          --context-length 262144 \
+          --reasoning-parser qwen3
+
+    port: 30000
+    model: Qwen/Qwen3.6-27B
+
+    volumes:
+      # Optional instance volume for model and runtime caches
+      - instance_path: /root/.cache
+        path: /root/.cache
+        optional: true
+
+    resources:
+      shm_size: 16GB
+      gpu: H100:4
+    ```
+  </Tab>
+  <Tab title="AMD">
+    ```yaml .dstack.yml
+    type: service
+    name: qwen36
+
+    image: lmsysorg/sglang:v0.5.10-rocm720-mi30x
+
+    commands:
+      - |
+        sglang serve \
+          --model-path Qwen/Qwen3.6-27B \
+          --host 0.0.0.0 \
+          --port 30000 \
+          --tp $DSTACK_GPUS_NUM \
+          --mem-fraction-static 0.8 \
+          --context-length 262144 \
+          --reasoning-parser qwen3
+
+    port: 30000
+    model: Qwen/Qwen3.6-27B
+
+    volumes:
+      # Optional instance volume for model and runtime caches
+      - instance_path: /root/.cache
+        path: /root/.cache
+        optional: true
+
+    resources:
+      cpu: 52..
+      memory: 896GB..
+      shm_size: 16GB
+      disk: 450GB..
+      gpu: MI300X:4
+    ```
+
+    The first startup on MI300X can take longer while SGLang compiles ROCm kernels.
+  </Tab>
+</Tabs>
+
+Pass the configuration to `dstack apply`:
+
+```shell
+$ dstack apply -f .dstack.yml
+
+Submit the run qwen36? [y/n]: y
+
+Provisioning...
+---> 100%
+
+Service is published at:
+  http://localhost:3000/proxy/services/main/qwen36/
+Model Qwen/Qwen3.6-27B is published at:
+  http://localhost:3000/proxy/models/main/
+```
+
+Without a [gateway](/concepts/gateways), the service endpoint is accessible at `<dstack server URL>/proxy/services/<project name>/<run name>/`. Requests require the `Authorization: Bearer <dstack token>` header unless [authorization is disabled](#authorization).
+
+```shell
+$ curl http://localhost:3000/proxy/services/main/qwen36/v1/chat/completions \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer <dstack token>' \
+    -d '{
+        "model": "Qwen/Qwen3.6-27B",
+        "messages": [
+            {
+                "role": "user",
+                "content": "Compose a poem that explains the concept of recursion in programming."
+            }
+        ]
+    }'
+```
+
+## Configuration options
+
+### Gateway
+
+A gateway is required or recommended in the following situations:
+
+- To use [auto-scaling](#replicas-and-scaling) or [rate limits](#rate-limits)
+- To enable HTTPS and map the service to your own domain
+- If your service requires WebSockets
+- If your service cannot work with a [path prefix](#path-prefix)
+
+To ensure dstack validates that a gateway is present, set `gateway: true` in the service configuration. You can also set it to the name of a specific gateway.
+
+With a [gateway](/concepts/gateways) configured, the service endpoint is available at `https://<run name>.<gateway domain>/`:
+
+```shell
+$ curl https://llama31.example.com/v1/chat/completions \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer <dstack token>' \
+    -d '{
+        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "messages": [
+            {
+                "role": "user",
+                "content": "Compose a poem that explains the concept of recursion in programming."
+            }
+        ]
+    }'
+```
+
+### Replicas and scaling
+
+By default, dstack runs a single replica. Configure replicas and auto-scaling rules:
+
+<Tabs>
+  <Tab title="NVIDIA">
+    ```yaml service.dstack.yml
+    type: service
+    name: qwen36-service
+
+    image: lmsysorg/sglang:v0.5.10.post1
+
+    commands:
+      - |
+        sglang serve \
+          --model-path Qwen/Qwen3.6-27B \
+          --host 0.0.0.0 \
+          --port 30000 \
+          --tp $DSTACK_GPUS_NUM \
+          --reasoning-parser qwen3 \
+          --mem-fraction-static 0.8 \
+          --context-length 262144
+
+    port: 30000
+    model: Qwen/Qwen3.6-27B
+
+    volumes:
+      - instance_path: /root/.cache
+        path: /root/.cache
+        optional: true
+
+    resources:
+      shm_size: 16GB
+      gpu: H100:4
+
+    replicas: 1..2
+    scaling:
+      metric: rps
+      target: 1
+    ```
+  </Tab>
+  <Tab title="AMD">
+    ```yaml service.dstack.yml
+    type: service
+    name: qwen36-service
+
+    image: lmsysorg/sglang:v0.5.10-rocm720-mi30x
+
+    commands:
+      - |
+        sglang serve \
+          --model-path Qwen/Qwen3.6-27B \
+          --host 0.0.0.0 \
+          --port 30000 \
+          --tp $DSTACK_GPUS_NUM \
+          --reasoning-parser qwen3 \
+          --mem-fraction-static 0.8 \
+          --context-length 262144
+
+    port: 30000
+    model: Qwen/Qwen3.6-27B
+
+    volumes:
+      - instance_path: /root/.cache
+        path: /root/.cache
+        optional: true
+
+    resources:
+      cpu: 52..
+      memory: 896GB..
+      shm_size: 16GB
+      disk: 450GB..
+      gpu: MI300X:4
+
+    replicas: 1..2
+    scaling:
+      metric: rps
+      target: 1
+    ```
+  </Tab>
+</Tabs>
+
+The `replicas` property accepts a number or a range. The `scaling.metric` currently only supports `rps` (requests per second) — dstack adjusts replicas up or down based on load. Setting the minimum to `0` allows the service to scale down to zero when idle.
+
+<Note>
+  The `scaling` property requires a [gateway](/concepts/gateways).
+</Note>
+
+<Accordion title="Replica groups">
+  A service can define multiple replica groups, each with its own `commands`, `resources`, and `scaling` rules. This is useful when you want to serve the same model on different GPU tiers:
+
+  ```yaml service.dstack.yml
+  type: service
+  name: llama-8b-service
+
+  image: lmsysorg/sglang:v0.5.10.post1
+  env:
+    - MODEL_ID=deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+
+  replicas:
+    - count: 1..2
+      scaling:
+        metric: rps
+        target: 10
+      commands:
+        - |
+          python -m sglang.launch_server \
+            --model-path $MODEL_ID \
+            --port 8000 \
+            --trust-remote-code
+      resources:
+        gpu: 48GB
+
+    - count: 1..4
+      scaling:
+        metric: rps
+        target: 5
+      commands:
+        - |
+          python -m sglang.launch_server \
+            --model-path $MODEL_ID \
+            --port 8000 \
+            --trust-remote-code
+      resources:
+        gpu: 24GB
+
+  port: 8000
+  model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  ```
+</Accordion>
+
+### Authorization
+
+By default, the service requires a dstack user token in the `Authorization` header. Disable it with `auth: false`:
+
+```yaml examples/misc/http.server/service.dstack.yml
+type: service
+name: http-server-service
+
+# Disable authorization
+auth: false
+
+python: "3.12"
+
+commands:
+  - python3 -m http.server
+port: 8000
+```
+
+### Probes
+
+Configure HTTP probes to periodically check service health:
+
+```yaml service.dstack.yml
+type: service
+name: my-service
+port: 80
+image: my-app:latest
+probes:
+  - type: http
+    url: /health
+    interval: 15s
+```
+
+Track probe statuses in `dstack ps --verbose`:
+
+```shell
+$ dstack ps --verbose
+
+ NAME                            BACKEND          STATUS   PROBES  SUBMITTED
+ my-service deployment=1                          running          11 mins ago
+   replica=0 job=0 deployment=0  aws (us-west-2)  running  ✓       11 mins ago
+   replica=1 job=0 deployment=1  aws (us-west-2)  running  ×       1 min ago
+```
+
+Probe status symbols: `×` — last probe failed; `~` — passing but `ready_after` threshold not yet reached; `✓` — all `ready_after` probes passed.
+
+<Accordion title="Custom HTTP request configuration">
+  Configure the method, headers, and body. Use environment variable interpolation for secret values:
+
+  ```yaml service.dstack.yml
+  type: service
+  name: my-service
+  port: 80
+  image: my-app:latest
+  env:
+    - PROBES_API_KEY
+  probes:
+    - type: http
+      method: post
+      url: /check-health
+      headers:
+        - name: X-API-Key
+          value: ${{ env.PROBES_API_KEY }}
+        - name: Content-Type
+          value: application/json
+      body: '{"level": 2}'
+      timeout: 20s
+  ```
+</Accordion>
+
+<Note>
+  When `model` is set, dstack automatically configures a default probe using the `/v1/chat/completions` API. To disable probes entirely, explicitly set `probes: []`.
+</Note>
+
+### Path prefix
+
+When no gateway is configured, services are hosted under `/proxy/services/<project name>/<run name>/`. If your web app needs to work with this prefix, set `strip_prefix: false` and configure the app accordingly:
+
+```yaml dash.dstack.yml
+type: service
+name: dash
+gateway: false
+
+auth: false
+# Do not strip the path prefix
+strip_prefix: false
+
+env:
+  # Replace `main` with your dstack project name
+  - DASH_ROUTES_PATHNAME_PREFIX=/proxy/services/main/dash/
+
+commands:
+  - uv pip install dash
+  - python app.py
+
+port: 8050
+```
+
+By default, dstack strips the prefix before forwarding to your service. Set `strip_prefix: false` if your app needs the full path. For apps that cannot work with a prefix at all, set up a [gateway](/concepts/gateways) to host on a dedicated domain.
+
+### Rate limits
+
+With a [gateway](/concepts/gateways), configure per-client rate limits:
+
+```yaml service.dstack.yml
+type: service
+image: my-app:latest
+port: 80
+
+rate_limits:
+  # Strict limit on auth endpoints: 1 req/sec, no bursts
+  - prefix: /api/auth/
+    rps: 1
+  # General limit: 4 req/sec with burst allowance
+  - rps: 4
+    burst: 9
+```
+
+The `rps` limit is tracked in milliseconds (e.g., `rps: 4` = 1 request every 250 ms). Use `burst` to allow short spikes. Limits apply per client (by IP) and return HTTP 429 when exceeded.
+
+<Accordion title="Partitioning by header">
+  Partition by a header value instead of IP address (e.g., to enforce per-user limits using the `Authorization` header):
+
+  ```yaml
+  rate_limits:
+    - rps: 4
+      burst: 9
+      key:
+        type: header
+        header: Authorization
+  ```
+</Accordion>
+
+### Model
+
+If the service runs a model with an OpenAI-compatible interface, set `model` to register it in dstack's chat UI on the Models page. dstack uses the service's `/v1/chat/completions` endpoint and automatically configures health probes.
+
+### Resources
+
+```yaml .dstack.yml
+type: service
+name: llama31-service
+
+python: "3.12"
+env:
+  - HF_TOKEN
+  - MODEL_ID=meta-llama/Meta-Llama-3.1-8B-Instruct
+  - MAX_MODEL_LEN=4096
+commands:
+  - uv pip install vllm
+  - |
+    vllm serve $MODEL_ID \
+      --max-model-len $MAX_MODEL_LEN \
+      --tensor-parallel-size $DSTACK_GPUS_NUM
+port: 8000
+
+resources:
+  # 16 or more x86_64 cores
+  cpu: 16..
+  # 2 GPUs of 80 GB each
+  gpu: 80GB:2
+  # Minimum disk size
+  disk: 200GB
+```
+
+The `gpu` property accepts vendor, model, memory, and count. The `cpu` property accepts architecture and count. If vendor is omitted, dstack infers it from the model or defaults to `nvidia`.
+
+### Docker
+
+#### Default image
+
+When `image` is not specified, dstack uses its base image with `uv`, `python`, `pip`, CUDA drivers, `mpirun`, and NCCL tests. Set `python` to select a version.
+
+#### Custom image
+
+```yaml .dstack.yml
+type: service
+name: http-server-service
+
+image: python
+
+commands:
+  - python3 -m http.server
+port: 8000
+```
+
+#### Docker in Docker
+
+Set `docker: true` to enable the Docker CLI inside the service. Not supported on `runpod`, `vastai`, or `kubernetes`.
+
+#### Private registry
+
+```yaml .dstack.yml
+type: service
+name: serve-distill-deepseek
+
+env:
+  - NGC_API_KEY
+  - NIM_MAX_MODEL_LEN=4096
+
+image: nvcr.io/nim/deepseek-ai/deepseek-r1-distill-llama-8b
+registry_auth:
+  username: $oauthtoken
+  password: ${{ env.NGC_API_KEY }}
+port: 8000
+
+model: deepseek-ai/deepseek-r1-distill-llama-8b
+
+resources:
+  gpu: H100:1
+```
+
+### Retry policy
+
+Configure automatic retry on failures:
+
+```yaml .dstack.yml
+type: service
+image: my-app:latest
+port: 80
+
+retry:
+  on_events: [no-capacity, error, interruption]
+  duration: 1h
+```
+
+If one replica of a multi-replica service fails with retry enabled, dstack resubmits only the failed replica while keeping the others running.
+
+### Utilization policy
+
+Auto-terminate if GPU utilization stays below a threshold:
+
+```yaml .dstack.yml
+type: service
+name: llama-2-7b-service
+
+python: "3.12"
+env:
+  - HF_TOKEN
+  - MODEL=NousResearch/Llama-2-7b-chat-hf
+commands:
+  - uv pip install vllm
+  - python -m vllm.entrypoints.openai.api_server --model $MODEL --port 8000
+port: 8000
+
+resources:
+  gpu: 24GB
+
+utilization_policy:
+  min_gpu_utilization: 10
+  time_window: 1h
+```
+
+### Schedule
+
+Start a service on a recurring schedule using cron syntax (UTC):
+
+```yaml .dstack.yml
+type: service
+name: llama-2-7b-service
+
+python: "3.12"
+env:
+  - HF_TOKEN
+  - MODEL=NousResearch/Llama-2-7b-chat-hf
+commands:
+  - uv pip install vllm
+  - python -m vllm.entrypoints.openai.api_server --model $MODEL --port 8000
+port: 8000
+
+resources:
+  gpu: 24GB
+
+schedule:
+  cron: "0 8 * * mon-fri"  # At 8:00 UTC, Monday through Friday
+```
+
+<Info>
+  Services support additional options including `backends`, `regions`, and `max_price`. See the [service reference](https://dstack.ai/docs/reference/dstack.yml/service) for the full list.
+</Info>
+
+## Rolling deployment
+
+To deploy a new version of a running service, use `dstack apply`. dstack detects changes and offers a rolling update:
+
+```shell
+$ dstack apply -f my-service.dstack.yml
+
+Active run my-service already exists. Detected changes that can be updated in-place:
+- Repo state (branch, commit, or other)
+- File archives
+- Configuration properties:
+  - env
+  - files
+
+Update the run? [y/n]:
+```
+
+When approved, dstack updates replicas one at a time: it starts a new replica, waits for it to become `running` and for all [probes](#probes) to pass, then terminates the old replica.
+
+```shell
+$ dstack apply -f my-service.dstack.yml
+
+⠋ Launching my-service...
+ NAME                            BACKEND          PRICE    STATUS       SUBMITTED
+ my-service deployment=1                                   running      11 mins ago
+   replica=0 job=0 deployment=0  aws (us-west-2)  $0.0026  terminating  11 mins ago
+   replica=1 job=0 deployment=1  aws (us-west-2)  $0.0026  running      1 min ago
+```
+
+<Accordion title="Supported properties for rolling deployment">
+  Rolling deployment supports changes to: `port`, `probes`, `resources`, `volumes`, `docker`, `files`, `image`, `user`, `privileged`, `entrypoint`, `working_dir`, `python`, `nvcc`, `single_branch`, `env`, `shell`, `commands`, and changes to repo or file contents.
+
+  Changes to `replicas` and `scaling` apply without redeploying replicas.
+
+  To trigger a rolling deployment with no property changes (e.g., after updating secrets), add a dummy environment variable.
+</Accordion>
+
+<CardGroup cols={2}>
+  <Card title="Gateways" href="/concepts/gateways" icon="globe">
+    Enable HTTPS, custom domains, and advanced traffic management.
+  </Card>
+  <Card title="Volumes" href="/concepts/volumes" icon="database">
+    Attach persistent storage to cache models and data.
+  </Card>
+  <Card title="Fleets" href="/concepts/fleets" icon="server">
+    Manage the compute instances backing your services.
+  </Card>
+  <Card title="Tasks" href="/concepts/tasks" icon="play">
+    Run training and batch jobs on the same infrastructure.
+  </Card>
+</CardGroup>

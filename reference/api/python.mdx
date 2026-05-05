@@ -1,0 +1,529 @@
+---
+title: "Python API reference for the dstack.api module"
+description: "Reference for the dstack Python API (dstack.api). Authenticate, submit tasks and services, stream logs, and manage run lifecycles programmatically."
+---
+
+The `dstack.api` module exposes a high-level Python interface to the dstack server. You can use it to submit tasks and services, list and inspect runs, stream logs, and manage the full run lifecycle—all without leaving Python.
+
+## Installation
+
+Install `dstack` from PyPI. The same package that provides the CLI also exposes the Python API.
+
+```bash
+pip install dstack
+```
+
+## Authentication
+
+Create a `Client` instance using either your local `~/.dstack/config.yml` (written by `dstack init`) or by passing credentials explicitly.
+
+```python
+from dstack.api import Client
+
+# Read credentials from ~/.dstack/config.yml
+client = Client.from_config()
+
+# Or supply credentials directly
+client = Client.from_config(
+    project_name="main",
+    server_url="http://localhost:3000",
+    user_token="your-token-here",
+)
+```
+
+---
+
+## `Client`
+
+High-level entry point for the dstack server. Exposes sub-collections for runs, repos, and backends.
+
+### `Client.from_config`
+
+```python
+@staticmethod
+def from_config(
+    project_name: Optional[str] = None,
+    server_url: Optional[str] = None,
+    user_token: Optional[str] = None,
+) -> Client
+```
+
+Creates a `Client` from the default configuration file at `~/.dstack/config.yml`. When `server_url` and `user_token` are both provided, `project_name` is required and the config file is ignored.
+
+<ParamField path="project_name" type="string">
+  The dstack project to operate against. Required when `server_url` and `user_token` are supplied.
+</ParamField>
+
+<ParamField path="server_url" type="string">
+  Base URL of the dstack server (e.g. `http://localhost:3000` or `https://sky.dstack.ai`).
+</ParamField>
+
+<ParamField path="user_token" type="string">
+  dstack user token. Must be paired with `server_url`.
+</ParamField>
+
+<ResponseField name="Client" type="Client">
+  An authenticated client instance.
+</ResponseField>
+
+### Properties
+
+<ResponseField name="project" type="string">
+  The project name this client is scoped to.
+</ResponseField>
+
+<ResponseField name="runs" type="RunCollection">
+  Access run operations. See [`RunCollection`](#runcollection).
+</ResponseField>
+
+<ResponseField name="repos" type="RepoCollection">
+  Access repository operations.
+</ResponseField>
+
+<ResponseField name="backends" type="BackendCollection">
+  Access backend operations. See [`BackendCollection`](#backendcollection).
+</ResponseField>
+
+<ResponseField name="client" type="APIClient">
+  Low-level API client that exposes all HTTP endpoints directly.
+</ResponseField>
+
+---
+
+## `RunCollection`
+
+Accessed via `client.runs`. Provides methods to plan, submit, list, and retrieve runs.
+
+### `apply_configuration`
+
+Submit a configuration directly, combining `get_run_plan` and `apply_plan` in a single call.
+
+```python
+run = client.runs.apply_configuration(
+    configuration=task,
+    repo=None,
+)
+```
+
+<ParamField path="configuration" type="Task | Service | DevEnvironment" required>
+  The run configuration to apply.
+</ParamField>
+
+<ParamField path="repo" type="RemoteRepo | VirtualRepo | None">
+  Repository to mount into the run. Pass `None` when no repo is needed.
+</ParamField>
+
+<ParamField path="profile" type="Profile">
+  Optional profile to use for instance selection.
+</ParamField>
+
+<ParamField path="configuration_path" type="string">
+  Path to the configuration file on disk. Omit when the configuration is constructed in code.
+</ParamField>
+
+<ParamField path="reserve_ports" type="boolean" default="true">
+  Reserve local ports before applying. Set to `True` when you plan to call `run.attach()`.
+</ParamField>
+
+<ResponseField name="Run" type="Run">
+  The submitted run object. See [`Run`](#run).
+</ResponseField>
+
+### `get_run_plan`
+
+Compute a run plan without submitting the run. Useful for inspecting instance offers before committing.
+
+```python
+plan = client.runs.get_run_plan(configuration=task, repo=None)
+```
+
+<ParamField path="configuration" type="Task | Service | DevEnvironment" required>
+  The run configuration to plan.
+</ParamField>
+
+<ParamField path="repo" type="RemoteRepo | VirtualRepo | None">
+  Repository to mount into the run.
+</ParamField>
+
+<ResponseField name="RunPlan" type="RunPlan">
+  The computed plan, including job plans and instance offers. Pass to `apply_plan`.
+</ResponseField>
+
+### `apply_plan`
+
+Submit a previously computed `RunPlan`.
+
+```python
+run = client.runs.apply_plan(run_plan=plan, repo=None)
+```
+
+<ParamField path="run_plan" type="RunPlan" required>
+  The result of a prior `get_run_plan` call.
+</ParamField>
+
+<ParamField path="repo" type="RemoteRepo | VirtualRepo | None">
+  Must match the repo passed to `get_run_plan`.
+</ParamField>
+
+<ParamField path="reserve_ports" type="boolean" default="true">
+  Reserve local ports before applying.
+</ParamField>
+
+<ResponseField name="Run" type="Run">
+  The submitted run object.
+</ResponseField>
+
+### `list`
+
+List runs in the current project.
+
+```python
+runs = client.runs.list(all=True, limit=50)
+```
+
+<ParamField path="all" type="boolean" default="false">
+  When `True`, includes finished and deleted runs. When `False`, returns only active runs (or the single most recent run if none are active).
+</ParamField>
+
+<ParamField path="limit" type="number" default="100">
+  Maximum number of runs to return. Must be `<= 100`.
+</ParamField>
+
+<ResponseField name="List[Run]" type="list">
+  List of `Run` objects sorted by descending submission time.
+</ResponseField>
+
+### `get`
+
+Retrieve a single run by name.
+
+```python
+run = client.runs.get("my-awesome-run")
+```
+
+<ParamField path="run_name" type="string" required>
+  The name of the run to retrieve.
+</ParamField>
+
+<ResponseField name="Run | None" type="Run | None">
+  The `Run` object, or `None` if no run with that name exists.
+</ResponseField>
+
+---
+
+## `Run`
+
+Represents a submitted run. Returned by `RunCollection` methods and by `list` / `get`.
+
+### Properties
+
+<ResponseField name="name" type="string">
+  The run name, as assigned at submission time or auto-generated.
+</ResponseField>
+
+<ResponseField name="status" type="RunStatus">
+  Current run status. One of `submitted`, `pending`, `provisioning`, `running`, `terminating`, `terminated`, `aborted`, `failed`, or `done`.
+</ResponseField>
+
+<ResponseField name="backend" type="BackendType | None">
+  The backend type that provisioned the run (e.g. `aws`, `gcp`, `azure`).
+</ResponseField>
+
+<ResponseField name="hostname" type="string">
+  The hostname of the provisioned instance.
+</ResponseField>
+
+<ResponseField name="ports" type="dict[int, int] | None">
+  Port mapping from container port to local port. Available after `attach()` completes.
+</ResponseField>
+
+<ResponseField name="service_url" type="string">
+  Public URL of the deployed service. Only valid when the run uses a `Service` configuration.
+</ResponseField>
+
+### `attach`
+
+Wait for the run to start, then establish an SSH tunnel and forward configured ports to `localhost`.
+
+```python
+run.attach()
+```
+
+<ParamField path="replica_num" type="number">
+  Attach to a specific replica. Defaults to any running replica.
+</ParamField>
+
+<ResponseField name="bool" type="boolean">
+  `True` if the tunnel was established, `False` if the run finished before it could be attached.
+</ResponseField>
+
+### `logs`
+
+Stream log output from the run. Yields raw `bytes` chunks.
+
+```python
+for chunk in run.logs():
+    sys.stdout.buffer.write(chunk)
+    sys.stdout.buffer.flush()
+```
+
+<ParamField path="start_time" type="datetime">
+  Only return log messages at or after this timestamp.
+</ParamField>
+
+<ParamField path="diagnose" type="boolean" default="false">
+  When `True`, returns runner diagnostic logs instead of container output.
+</ParamField>
+
+### `stop`
+
+Terminate the run and detach any active SSH tunnel.
+
+```python
+run.stop(abort=True)
+```
+
+<ParamField path="abort" type="boolean" default="false">
+  When `False`, the server requests a graceful shutdown. When `True`, the instance is terminated immediately.
+</ParamField>
+
+### `refresh`
+
+Re-fetch run state from the server and update the local `Run` object.
+
+```python
+run.refresh()
+print(run.status)
+```
+
+### `detach`
+
+Tear down the SSH tunnel without stopping the run.
+
+```python
+run.detach()
+```
+
+---
+
+## Configuration types
+
+### `Task`
+
+Run a batch workload on a provisioned instance.
+
+```python
+from dstack.api import Task, GPU, Resources
+
+task = Task(
+    name="my-awesome-run",
+    image="ghcr.io/huggingface/text-generation-inference:latest",
+    env={"MODEL_ID": "TheBloke/Llama-2-13B-chat-GPTQ"},
+    commands=["text-generation-launcher --trust-remote-code --quantize gptq"],
+    ports=["80"],
+    resources=Resources(gpu=GPU(memory="24GB")),
+)
+```
+
+<ParamField path="name" type="string">
+  Run name. If omitted, dstack assigns a random name.
+</ParamField>
+
+<ParamField path="image" type="string">
+  Docker image to use. Defaults to the dstack base image when omitted.
+</ParamField>
+
+<ParamField path="env" type="object">
+  Environment variables as a `dict[str, str]`.
+</ParamField>
+
+<ParamField path="commands" type="string[]">
+  Shell commands to execute inside the container.
+</ParamField>
+
+<ParamField path="ports" type="string[]">
+  Container ports to forward (e.g. `["80", "8080:8080"]`).
+</ParamField>
+
+<ParamField path="resources" type="Resources">
+  Hardware resource requirements. See [`Resources`](#resources).
+</ParamField>
+
+<ParamField path="registry_auth" type="RegistryAuth">
+  Credentials for a private Docker registry.
+</ParamField>
+
+### `Service`
+
+Deploy a long-running HTTP service with optional auto-scaling.
+
+<ParamField path="port" type="number" required>
+  The container port the service listens on.
+</ParamField>
+
+<ParamField path="scaling" type="Scaling">
+  Auto-scaling policy. See [`Scaling`](#scaling).
+</ParamField>
+
+All other `Task` fields (`name`, `image`, `env`, `commands`, `resources`, `registry_auth`) apply here too.
+
+### `DevEnvironment`
+
+Launch an interactive development environment (VS Code / JupyterLab).
+
+All `Task` fields apply. `commands` is optional; dstack launches the IDE automatically.
+
+---
+
+## Resource types
+
+### `Resources`
+
+Declare hardware requirements for a run.
+
+<ParamField path="cpu" type="CPU">
+  CPU requirements. See [`CPU`](#cpu).
+</ParamField>
+
+<ParamField path="gpu" type="GPU">
+  GPU requirements. See [`GPU`](#gpu).
+</ParamField>
+
+<ParamField path="memory" type="string">
+  System RAM requirement as a size string (e.g. `"16GB"`, `"32..64GB"`).
+</ParamField>
+
+<ParamField path="disk" type="Disk">
+  Disk size requirement. See [`Disk`](#disk).
+</ParamField>
+
+### `GPU`
+
+```python
+from dstack.api import GPU
+GPU(name="A100", memory="40GB", count=1)
+```
+
+<ParamField path="name" type="string | string[]">
+  GPU model name or list of acceptable names (e.g. `"A100"`, `["A100", "H100"]`).
+</ParamField>
+
+<ParamField path="memory" type="string">
+  GPU VRAM requirement (e.g. `"24GB"`, `"40..80GB"`).
+</ParamField>
+
+<ParamField path="count" type="number | string">
+  Number of GPUs required, or a range string like `"2..4"`.
+</ParamField>
+
+### `CPU`
+
+<ParamField path="count" type="number | string">
+  Number of vCPUs required, or a range string like `"4..8"`.
+</ParamField>
+
+### `Disk`
+
+<ParamField path="size" type="string">
+  Disk size requirement (e.g. `"100GB"`).
+</ParamField>
+
+---
+
+## Repo types
+
+### `RemoteRepo`
+
+Mount a remote Git repository into the run.
+
+```python
+from dstack.api import RemoteRepo
+repo = RemoteRepo(git_repo_url="https://github.com/my-org/my-repo")
+```
+
+### `VirtualRepo`
+
+Mount files from the local filesystem without requiring a Git repository.
+
+```python
+from dstack.api import VirtualRepo
+repo = VirtualRepo()
+repo.add_file(path="train.py", local_path="./train.py")
+```
+
+---
+
+## Other types
+
+### `RegistryAuth`
+
+<ParamField path="username" type="string" required>
+  Docker registry username.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  Docker registry password or token.
+</ParamField>
+
+### `Scaling`
+
+<ParamField path="replicas" type="string | number" required>
+  Number of replicas or a range string (e.g. `"1..4"`).
+</ParamField>
+
+<ParamField path="scale_up_delay" type="number">
+  Seconds to wait before adding a replica.
+</ParamField>
+
+<ParamField path="scale_down_delay" type="number">
+  Seconds to wait before removing an idle replica.
+</ParamField>
+
+### `BackendCollection`
+
+Accessed via `client.backends`.
+
+```python
+backends = client.backends.list()
+for b in backends:
+    print(b.name)  # e.g. "aws", "gcp"
+```
+
+<ResponseField name="list()" type="List[Backend]">
+  Returns all backends configured for the current project.
+</ResponseField>
+
+---
+
+## Complete example
+
+The following example submits a task, attaches to it, streams its logs, and handles `KeyboardInterrupt` gracefully.
+
+```python
+import sys
+from dstack.api import Task, GPU, Client, Resources
+
+client = Client.from_config()
+
+task = Task(
+    name="my-awesome-run",
+    image="ghcr.io/huggingface/text-generation-inference:latest",
+    env={"MODEL_ID": "TheBloke/Llama-2-13B-chat-GPTQ"},
+    commands=["text-generation-launcher --trust-remote-code --quantize gptq"],
+    ports=["80"],
+    resources=Resources(gpu=GPU(memory="24GB")),
+)
+
+run = client.runs.apply_configuration(configuration=task, repo=None)
+
+run.attach()
+
+try:
+    for log in run.logs():
+        sys.stdout.buffer.write(log)
+        sys.stdout.buffer.flush()
+except KeyboardInterrupt:
+    run.stop(abort=True)
+finally:
+    run.detach()
+```

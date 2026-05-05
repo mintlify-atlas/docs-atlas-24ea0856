@@ -1,0 +1,763 @@
+---
+title: "dstack.yml configuration reference"
+description: "Complete .dstack.yml reference for all configuration types: dev-environment, task, service, fleet, volume, and gateway — with all fields and YAML examples."
+---
+
+Every dstack workload is described by a `.dstack.yml` file. The `type` field at the top of the file determines which configuration schema applies. This page documents every supported type and its fields.
+
+<Tabs>
+  <Tab title="dev-environment">
+
+    A `dev-environment` configuration launches an interactive development environment with optional IDE support (VS Code, Cursor, or Windsurf).
+
+    ```yaml
+    type: dev-environment
+    name: my-dev-env
+    image: python:3.12
+    ide: vscode
+    init:
+      - pip install -r requirements.txt
+    resources:
+      gpu: A100:1
+      memory: 32GB
+    ```
+
+    <ParamField path="type" type="string" required>
+      Must be `dev-environment`.
+    </ParamField>
+
+    <ParamField path="name" type="string">
+      The run name. If not specified, a random name is generated.
+    </ParamField>
+
+    <ParamField path="ide" type="string">
+      The IDE to pre-install. Supported values: `vscode`, `cursor`, `windsurf`. Defaults to no IDE (SSH only).
+    </ParamField>
+
+    <ParamField path="version" type="string">
+      The version of the IDE. For `windsurf`, the version must be in the format `version@commit`.
+    </ParamField>
+
+    <ParamField path="init" type="string[]">
+      Shell commands to run on startup.
+    </ParamField>
+
+    <ParamField path="inactivity_duration" type="string">
+      Maximum time the dev environment can be inactive before it is automatically stopped (e.g., `2h`, `1d`). Inactivity means no active SSH connections including VS Code. Use `off` for unlimited duration. Defaults to `off`.
+    </ParamField>
+
+    <ParamField path="image" type="string">
+      The Docker image to run. Mutually exclusive with `python` and `docker`.
+    </ParamField>
+
+    <ParamField path="python" type="string">
+      Python major version to use (e.g., `3.12`). Mutually exclusive with `image` and `docker`.
+    </ParamField>
+
+    <ParamField path="nvcc" type="boolean">
+      Use an image with NVIDIA CUDA Compiler (NVCC) included. Mutually exclusive with `image` and `docker`.
+    </ParamField>
+
+    <ParamField path="docker" type="boolean">
+      Use Docker inside the container. Mutually exclusive with `image`, `python`, and `nvcc`.
+    </ParamField>
+
+    <ParamField path="env" type="object | string[]">
+      Environment variables as a mapping or a list of `KEY=value` / `KEY` strings.
+    </ParamField>
+
+    <ParamField path="ports" type="number[] | string[]">
+      Port numbers or mappings to expose (e.g., `8080` or `80:8080`).
+    </ParamField>
+
+    <ParamField path="user" type="string">
+      The user inside the container, in the format `user_name_or_id[:group_name_or_id]`. Defaults to the image default.
+    </ParamField>
+
+    <ParamField path="privileged" type="boolean">
+      Run the container in privileged mode. Defaults to `false`.
+    </ParamField>
+
+    <ParamField path="entrypoint" type="string">
+      The Docker entrypoint. Not supported for `dev-environment`.
+    </ParamField>
+
+    <ParamField path="working_dir" type="string">
+      Absolute path to the working directory inside the container.
+    </ParamField>
+
+    <ParamField path="shell" type="string">
+      Shell used to run commands. Allowed values: `sh`, `bash`, or an absolute path. Defaults to `/bin/bash` when no image is specified.
+    </ParamField>
+
+    <ParamField path="single_branch" type="boolean">
+      Clone only the current branch when using remote Git repos. Defaults to `false` for dev environments.
+    </ParamField>
+
+    <ParamField path="priority" type="integer">
+      The run priority, an integer between `0` and `100`. Higher values are provisioned first. Defaults to `0`.
+    </ParamField>
+
+    <ParamField path="resources" type="object">
+      Hardware requirements for the run. See the [resources fields](#resources-fields) below.
+    </ParamField>
+
+    <ParamField path="volumes" type="array">
+      Volume mount points. Each entry is either a short colon-separated string (`volume-name:/container/path` for network volumes, `/instance/path:/container/path` for instance volumes) or a full object.
+    </ParamField>
+
+    <ParamField path="repos" type="array">
+      Git repos to clone into the container. A maximum of one repo is supported. Short syntax: `local_path_or_url:container_path`.
+    </ParamField>
+
+    <ParamField path="files" type="array">
+      Local-to-container file path mappings. Short syntax: `local_path[:container_path]`.
+    </ParamField>
+
+    <ParamField path="registry_auth" type="object">
+      Credentials for pulling a private Docker image. Contains `username` and `password`.
+    </ParamField>
+
+    <ParamField path="retry" type="object | boolean">
+      Policy for resubmitting the run. Defaults to `false`. See [retry fields](#retry-fields) below.
+    </ParamField>
+
+    <ParamField path="max_duration" type="string">
+      Maximum run duration in running state (e.g., `2h`, `1d`). Use `off` for unlimited. Defaults to `off`.
+    </ParamField>
+
+    <ParamField path="spot_policy" type="string">
+      Instance spot policy: `spot`, `on-demand`, or `auto`. Defaults to `on-demand`.
+    </ParamField>
+
+    <ParamField path="backends" type="string[]">
+      The backends to consider for provisioning (e.g., `[aws, gcp]`).
+    </ParamField>
+
+    <ParamField path="regions" type="string[]">
+      The regions to consider for provisioning (e.g., `[eu-west-1, us-west4]`).
+    </ParamField>
+
+    <ParamField path="max_price" type="number">
+      Maximum instance price per hour, in dollars.
+    </ParamField>
+
+    <ParamField path="schedule" type="object">
+      Schedule for starting the run. Contains a `cron` field with a cron expression or list of expressions.
+    </ParamField>
+
+  </Tab>
+
+  <Tab title="task">
+
+    A `task` configuration runs a non-interactive batch job. It requires either `commands` or `image` to be set.
+
+    ```yaml
+    type: task
+    name: train-model
+    python: "3.12"
+    commands:
+      - pip install -r requirements.txt
+      - python train.py
+    resources:
+      gpu: A100:1
+      memory: 64GB
+    ```
+
+    <ParamField path="type" type="string" required>
+      Must be `task`.
+    </ParamField>
+
+    <ParamField path="name" type="string">
+      The run name. If not specified, a random name is generated.
+    </ParamField>
+
+    <ParamField path="commands" type="string[]" required>
+      Shell commands to run. Required unless `image` is set.
+    </ParamField>
+
+    <ParamField path="nodes" type="integer">
+      Number of nodes for distributed runs. Defaults to `1`.
+    </ParamField>
+
+    <ParamField path="image" type="string">
+      The Docker image to run. Mutually exclusive with `python` and `docker`.
+    </ParamField>
+
+    <ParamField path="python" type="string">
+      Python major version (e.g., `3.12`). Mutually exclusive with `image`.
+    </ParamField>
+
+    <ParamField path="nvcc" type="boolean">
+      Use an image with NVIDIA CUDA Compiler (NVCC) included.
+    </ParamField>
+
+    <ParamField path="docker" type="boolean">
+      Use Docker inside the container. Mutually exclusive with `image`, `python`, and `nvcc`.
+    </ParamField>
+
+    <ParamField path="env" type="object | string[]">
+      Environment variables as a mapping or list.
+    </ParamField>
+
+    <ParamField path="ports" type="number[] | string[]">
+      Port numbers or mappings to expose.
+    </ParamField>
+
+    <ParamField path="user" type="string">
+      The user inside the container. Defaults to the image default.
+    </ParamField>
+
+    <ParamField path="privileged" type="boolean">
+      Run the container in privileged mode. Defaults to `false`.
+    </ParamField>
+
+    <ParamField path="working_dir" type="string">
+      Absolute path to the working directory inside the container.
+    </ParamField>
+
+    <ParamField path="shell" type="string">
+      Shell used to run commands (`sh`, `bash`, or an absolute path).
+    </ParamField>
+
+    <ParamField path="single_branch" type="boolean">
+      Clone only the current branch. Defaults to `true` for tasks.
+    </ParamField>
+
+    <ParamField path="priority" type="integer">
+      Run priority between `0` and `100`. Defaults to `0`.
+    </ParamField>
+
+    <ParamField path="resources" type="object">
+      Hardware requirements. See [resources fields](#resources-fields) below.
+    </ParamField>
+
+    <ParamField path="volumes" type="array">
+      Volume mount points (network or instance volumes).
+    </ParamField>
+
+    <ParamField path="repos" type="array">
+      Git repos to clone (maximum one). Short syntax: `url_or_path:container_path`.
+    </ParamField>
+
+    <ParamField path="files" type="array">
+      Local-to-container file path mappings.
+    </ParamField>
+
+    <ParamField path="registry_auth" type="object">
+      Credentials for pulling a private Docker image.
+    </ParamField>
+
+    <ParamField path="retry" type="object | boolean">
+      Retry policy. Defaults to `false`.
+    </ParamField>
+
+    <ParamField path="max_duration" type="string">
+      Maximum run duration (e.g., `2h`, `1d`). Use `off` for unlimited. Defaults to `off`.
+    </ParamField>
+
+    <ParamField path="stop_duration" type="string">
+      Maximum graceful stopping duration. Use `off` for unlimited. Defaults to `5m`.
+    </ParamField>
+
+    <ParamField path="spot_policy" type="string">
+      Instance spot policy: `spot`, `on-demand`, or `auto`. Defaults to `on-demand`.
+    </ParamField>
+
+    <ParamField path="backends" type="string[]">
+      Backends to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="regions" type="string[]">
+      Regions to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="max_price" type="number">
+      Maximum instance price per hour, in dollars.
+    </ParamField>
+
+    <ParamField path="schedule" type="object">
+      Schedule for starting the run. Contains a `cron` field.
+    </ParamField>
+
+    <ParamField path="startup_order" type="string">
+      Order in which master and worker jobs start: `any`, `master-first`, or `workers-first`. Defaults to `any`.
+    </ParamField>
+
+    <ParamField path="stop_criteria" type="string">
+      When a multi-node run is considered finished: `all-done` or `master-done`. Defaults to `all-done`.
+    </ParamField>
+
+  </Tab>
+
+  <Tab title="service">
+
+    A `service` configuration deploys a long-running HTTP endpoint, optionally exposed through a gateway with auto-scaling and rate limiting.
+
+    ```yaml
+    type: service
+    name: llama31
+    env:
+      - HF_TOKEN
+    commands:
+      - pip install vllm
+      - vllm serve meta-llama/Meta-Llama-3.1-8B-Instruct
+        --max-model-len 4096
+        --tensor-parallel-size $DSTACK_GPUS_NUM
+    port: 8000
+    model: meta-llama/Meta-Llama-3.1-8B-Instruct
+    resources:
+      gpu: 24GB
+    replicas: 1..4
+    scaling:
+      metric: rps
+      target: 10
+    ```
+
+    <ParamField path="type" type="string" required>
+      Must be `service`.
+    </ParamField>
+
+    <ParamField path="name" type="string">
+      The run name. If not specified, a random name is generated.
+    </ParamField>
+
+    <ParamField path="port" type="integer" required>
+      The port the application listens on.
+    </ParamField>
+
+    <ParamField path="commands" type="string[]">
+      Shell commands to run. Required unless `image` is set (or when using replica groups with their own `commands`).
+    </ParamField>
+
+    <ParamField path="gateway" type="boolean | string">
+      Gateway to use. `false` disables the gateway, `true` uses the default gateway, or specify a gateway name by string. Omit to use the default gateway if one exists.
+    </ParamField>
+
+    <ParamField path="auth" type="boolean">
+      Enable authorization. Defaults to `true`.
+    </ParamField>
+
+    <ParamField path="https" type="boolean | string">
+      Enable HTTPS when running with a gateway. Set to `auto` to determine based on gateway configuration. Defaults to `true`.
+    </ParamField>
+
+    <ParamField path="model" type="string | object">
+      Model mapping for the OpenAI-compatible endpoint. Can be just a model name string, or a full model format definition. When set as a string, the service is expected to expose an OpenAI-compatible API at `/v1`.
+    </ParamField>
+
+    <ParamField path="replicas" type="integer | string | object[]">
+      Number of replicas, a range (e.g., `0..4`), or a list of replica groups. When using a range, `scaling` is required. Defaults to `1`.
+    </ParamField>
+
+    <ParamField path="scaling" type="object">
+      Auto-scaling rules. Required when `replicas` is a range. Contains:
+      - `metric` — target metric, currently only `rps` (requests per second)
+      - `target` — target value of the metric
+      - `window` — time window for RPS calculation (e.g., `60s`)
+      - `scale_up_delay` — minimum time between scale-up events. Defaults to `5m`
+      - `scale_down_delay` — minimum time between scale-down events. Defaults to `10m`
+    </ParamField>
+
+    <ParamField path="rate_limits" type="object[]">
+      Rate limiting rules. Each entry contains:
+      - `prefix` — URL path prefix the limit applies to. Defaults to `/`
+      - `rps` — maximum requests per second
+      - `burst` — number of requests that can exceed the rate limit. Defaults to `0`
+      - `key` — partitioning key: `{ type: ip_address }` or `{ type: header, header: X-My-Header }`
+    </ParamField>
+
+    <ParamField path="probes" type="object[]">
+      HTTP probes to determine service health. If `model` is set, defaults to a `/v1/chat/completions` probe. Each probe contains:
+      - `type` — must be `http`
+      - `url` — URL path to request. Defaults to `/`
+      - `method` — HTTP method. Defaults to `get`
+      - `timeout` — maximum probe request duration. Defaults to `10s`
+      - `interval` — minimum time between probes. Defaults to `15s`
+      - `ready_after` — consecutive successes required for replica to be ready. Defaults to `1`
+    </ParamField>
+
+    <ParamField path="strip_prefix" type="boolean">
+      Strip the `/proxy/services/<project>/<run>/` prefix when forwarding requests without a gateway. Defaults to `true`.
+    </ParamField>
+
+    <ParamField path="image" type="string">
+      Docker image to run. Mutually exclusive with `python` and `docker`.
+    </ParamField>
+
+    <ParamField path="python" type="string">
+      Python major version. Mutually exclusive with `image`.
+    </ParamField>
+
+    <ParamField path="env" type="object | string[]">
+      Environment variables as a mapping or list.
+    </ParamField>
+
+    <ParamField path="resources" type="object">
+      Hardware requirements. See [resources fields](#resources-fields) below.
+    </ParamField>
+
+    <ParamField path="volumes" type="array">
+      Volume mount points (network or instance volumes).
+    </ParamField>
+
+    <ParamField path="registry_auth" type="object">
+      Credentials for pulling a private Docker image.
+    </ParamField>
+
+    <ParamField path="retry" type="object | boolean">
+      Retry policy. Defaults to `false`.
+    </ParamField>
+
+    <ParamField path="spot_policy" type="string">
+      Instance spot policy: `spot`, `on-demand`, or `auto`.
+    </ParamField>
+
+    <ParamField path="backends" type="string[]">
+      Backends to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="regions" type="string[]">
+      Regions to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="max_price" type="number">
+      Maximum instance price per hour, in dollars.
+    </ParamField>
+
+  </Tab>
+
+  <Tab title="fleet">
+
+    A `fleet` configuration creates and manages a pool of cloud or SSH instances that runs can reuse without waiting for provisioning.
+
+    ```yaml
+    type: fleet
+    name: gpu-fleet
+    nodes:
+      min: 1
+      max: 4
+    resources:
+      gpu: A100:1
+      memory: 64GB
+    spot_policy: auto
+    idle_duration: 1h
+    ```
+
+    <ParamField path="type" type="string" required>
+      Must be `fleet`.
+    </ParamField>
+
+    <ParamField path="name" type="string">
+      The fleet name.
+    </ParamField>
+
+    <ParamField path="nodes" type="object | integer | string">
+      Number of instances in a cloud fleet. Accepts an integer, a range string (e.g., `1..4`), or an object with:
+      - `min` — minimum instances to maintain
+      - `target` — instances to provision on `dstack apply`. Must be between `min` and `max`. Defaults to `min`
+      - `max` — maximum instances allowed. Unlimited if not specified
+    </ParamField>
+
+    <ParamField path="placement" type="string">
+      Instance placement strategy: `any` or `cluster`. Use `cluster` to ensure instances are placed in the same availability zone for low-latency networking.
+    </ParamField>
+
+    <ParamField path="env" type="object | string[]">
+      Environment variables available on all fleet instances.
+    </ParamField>
+
+    <ParamField path="resources" type="object">
+      Hardware requirements for fleet instances. See [resources fields](#resources-fields) below.
+    </ParamField>
+
+    <ParamField path="ssh_config" type="object">
+      Parameters for adding existing SSH-accessible hosts to a fleet. Contains:
+      - `user` — SSH user for all hosts
+      - `port` — SSH port
+      - `identity_file` — path to the private key
+      - `hosts` — list of hostnames or per-host override objects
+      - `network` — internal network in `ip/netmask` format for cluster communication
+      - `proxy_jump` — SSH proxy configuration
+    </ParamField>
+
+    <ParamField path="blocks" type="integer | string">
+      Number of blocks to split each instance into, or `auto` for as many as possible. GPUs and CPUs must be divisible by the block count. Defaults to `1`.
+    </ParamField>
+
+    <ParamField path="spot_policy" type="string">
+      Instance spot policy: `spot`, `on-demand`, or `auto`. Defaults to `on-demand`.
+    </ParamField>
+
+    <ParamField path="backends" type="string[]">
+      Backends to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="regions" type="string[]">
+      Regions to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="availability_zones" type="string[]">
+      Availability zones to consider for provisioning.
+    </ParamField>
+
+    <ParamField path="instance_types" type="string[]">
+      Cloud-specific instance types to consider (e.g., `[p3.8xlarge]`).
+    </ParamField>
+
+    <ParamField path="max_price" type="number">
+      Maximum instance price per hour, in dollars.
+    </ParamField>
+
+    <ParamField path="idle_duration" type="string">
+      Time to wait before terminating idle instances. Instances at `nodes.min` are not terminated. Defaults to `3d`. Use `off` for unlimited duration.
+    </ParamField>
+
+    <ParamField path="retry" type="object | boolean">
+      Provisioning retry policy. Defaults to `false`.
+    </ParamField>
+
+    <ParamField path="tags" type="object">
+      Custom key-value tags to associate with the fleet and its underlying backend resources.
+    </ParamField>
+
+  </Tab>
+
+  <Tab title="volume">
+
+    A `volume` configuration creates, registers, or updates a network volume that can be mounted into runs. The required fields differ by `backend`.
+
+    <Tabs>
+      <Tab title="AWS / GCP">
+
+        ```yaml
+        type: volume
+        name: training-data
+        backend: aws
+        region: us-east-1
+        availability_zone: us-east-1a
+        size: 200GB
+        ```
+
+        <ParamField path="type" type="string" required>
+          Must be `volume`.
+        </ParamField>
+
+        <ParamField path="backend" type="string" required>
+          `aws` or `gcp`.
+        </ParamField>
+
+        <ParamField path="name" type="string">
+          The volume name.
+        </ParamField>
+
+        <ParamField path="region" type="string" required>
+          The region where the volume is created.
+        </ParamField>
+
+        <ParamField path="availability_zone" type="string">
+          The availability zone. Required for multi-AZ regions when creating new volumes.
+        </ParamField>
+
+        <ParamField path="size" type="string">
+          The volume size (e.g., `200GB`). Required when creating a new volume.
+        </ParamField>
+
+        <ParamField path="volume_id" type="string">
+          The existing volume ID. Required when registering an existing volume rather than creating one.
+        </ParamField>
+
+        <ParamField path="auto_cleanup_duration" type="string">
+          Time after the volume is no longer used by any job before it is deleted. Use `off` or `-1` to disable. Defaults to keeping the volume indefinitely.
+        </ParamField>
+
+        <ParamField path="tags" type="object">
+          Custom key-value tags for the volume and its backend resources.
+        </ParamField>
+
+      </Tab>
+
+      <Tab title="Kubernetes">
+
+        ```yaml
+        type: volume
+        name: pvc-volume
+        backend: kubernetes
+        size: 100GB
+        storage_class_name: fast-ssd
+        access_modes:
+          - ReadWriteMany
+        ```
+
+        <ParamField path="type" type="string" required>
+          Must be `volume`.
+        </ParamField>
+
+        <ParamField path="backend" type="string" required>
+          Must be `kubernetes`.
+        </ParamField>
+
+        <ParamField path="name" type="string">
+          The volume name in dstack.
+        </ParamField>
+
+        <ParamField path="size" type="string">
+          The requested PVC size (e.g., `100GB`). Required when creating a new PVC. Ignored if `claim_name` is set.
+        </ParamField>
+
+        <ParamField path="claim_name" type="string">
+          The name of an existing `PersistentVolumeClaim` to register. Set this instead of `size` when reusing an existing PVC.
+        </ParamField>
+
+        <ParamField path="storage_class_name" type="string">
+          The `StorageClass` name. Ignored if `claim_name` is set.
+        </ParamField>
+
+        <ParamField path="access_modes" type="string[]">
+          List of access modes for the PVC (e.g., `ReadWriteOnce`, `ReadWriteMany`). Ignored if `claim_name` is set. Defaults to `[ReadWriteOnce]`.
+        </ParamField>
+
+        <ParamField path="read_only" type="boolean">
+          If `true`, enforces the volume to be mounted as read-only. Defaults to `false`.
+        </ParamField>
+
+        <ParamField path="auto_cleanup_duration" type="string">
+          Time after the volume is no longer in use before it is deleted. Use `off` to disable.
+        </ParamField>
+
+      </Tab>
+    </Tabs>
+
+  </Tab>
+
+  <Tab title="gateway">
+
+    A `gateway` configuration provisions a gateway instance that exposes services over the internet with optional TLS.
+
+    ```yaml
+    type: gateway
+    name: prod-gateway
+    backend: aws
+    region: us-east-1
+    domain: gateway.example.com
+    default: true
+    certificate:
+      type: lets-encrypt
+    ```
+
+    <ParamField path="type" type="string" required>
+      Must be `gateway`.
+    </ParamField>
+
+    <ParamField path="name" type="string">
+      The gateway name.
+    </ParamField>
+
+    <ParamField path="backend" type="string" required>
+      The cloud backend to use for the gateway instance (e.g., `aws`, `gcp`).
+    </ParamField>
+
+    <ParamField path="region" type="string" required>
+      The region where the gateway instance is provisioned.
+    </ParamField>
+
+    <ParamField path="default" type="boolean">
+      Make this gateway the default gateway for the project. Defaults to `false`.
+    </ParamField>
+
+    <ParamField path="domain" type="string">
+      The domain name for the gateway (e.g., `gateway.example.com`). Required for TLS certificates.
+    </ParamField>
+
+    <ParamField path="public_ip" type="boolean">
+      Allocate a public IP address for the gateway. Defaults to `true`.
+    </ParamField>
+
+    <ParamField path="instance_type" type="string">
+      Backend-specific instance type for the gateway. Omit to use the backend's default (typically a small non-GPU instance).
+    </ParamField>
+
+    <ParamField path="certificate" type="object | null">
+      SSL certificate configuration. Set to `null` to disable TLS. Defaults to `{ type: lets-encrypt }`. Supported types:
+      - `lets-encrypt` — automatic certificates via Let's Encrypt
+      - `acm` — AWS Certificate Manager; requires `arn` field with the wildcard certificate ARN
+    </ParamField>
+
+    <ParamField path="router" type="object">
+      Router configuration for the gateway (e.g., `{ type: sglang, policy: round_robin }`).
+    </ParamField>
+
+    <ParamField path="tags" type="object">
+      Custom key-value tags for the gateway and its backend resources.
+    </ParamField>
+
+  </Tab>
+</Tabs>
+
+## Resources fields
+
+The `resources` object is supported by `dev-environment`, `task`, `service`, and `fleet` configurations.
+
+```yaml
+resources:
+  cpu: 8
+  memory: 32GB
+  gpu: A100:1
+  disk: 500GB
+  shm_size: 16GB
+```
+
+<ParamField path="resources.cpu" type="integer | string | object">
+  CPU requirements. Accepts a count (`4`), a range (`4..8`), a short spec string (`x86:4`), or an object with `count` and optional `arch` (`x86` or `arm`).
+</ParamField>
+
+<ParamField path="resources.memory" type="string">
+  RAM size (e.g., `8GB`, `32GB`). Supports ranges (e.g., `8GB..32GB`).
+</ParamField>
+
+<ParamField path="resources.shm_size" type="string">
+  Shared memory size (e.g., `8GB`). Required for parallel processes communicating via shared memory, such as PyTorch dataloaders.
+</ParamField>
+
+<ParamField path="resources.gpu" type="integer | string | object">
+  GPU requirements. Accepts a count (`1`), a short spec string (`A100:1`, `24GB:2`, `nvidia:A100,H100:2`), or an object with:
+  - `count` — number of GPUs. Supports ranges (`1..4`)
+  - `name` — GPU model name(s), e.g., `A100` or `[A100, H100]`
+  - `memory` — per-GPU memory size or range (e.g., `24GB`, `16GB..80GB`)
+  - `total_memory` — total GPU memory across all GPUs
+  - `vendor` — `nvidia`, `amd`, `google` (alias: `tpu`), or `intel`
+  - `compute_capability` — minimum CUDA compute capability (e.g., `7.5`)
+</ParamField>
+
+<ParamField path="resources.disk" type="string | object">
+  Disk requirements. Accepts a size string (`200GB`) or an object with a `size` field supporting ranges.
+</ParamField>
+
+## Retry fields
+
+The `retry` field is supported by `dev-environment`, `task`, `service`, and `fleet` configurations.
+
+```yaml
+retry:
+  on_events: [no-capacity, interruption, error]
+  duration: 4h
+```
+
+<ParamField path="retry.on_events" type="string[]">
+  Events that trigger a retry: `no-capacity`, `interruption`, `error`. Omit to retry on all events.
+</ParamField>
+
+<ParamField path="retry.duration" type="string">
+  Maximum retry period (e.g., `4h`, `1d`). For `no-capacity`, the period is the run age. For `interruption` and `error`, it is the time since the last such event.
+</ParamField>
+
+---
+
+<CardGroup cols={2}>
+  <Card title="profiles.yml reference" href="/reference/profiles-yml">
+    Set default run parameters and reusable profiles.
+  </Card>
+  <Card title="Environment variables" href="/reference/environment-variables">
+    Variables dstack injects into runs and server-side configuration.
+  </Card>
+</CardGroup>

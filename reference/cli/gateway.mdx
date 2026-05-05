@@ -1,0 +1,185 @@
+---
+title: "dstack gateway: manage gateways for service publishing"
+description: "List, update, and delete dstack gateways. Gateways publish services at a custom domain with HTTPS and handle routing, rate limiting, and auto-scaling."
+---
+
+`dstack gateway` is the command group for managing gateways — cloud resources that expose dstack services on a public endpoint with a custom domain and HTTPS. Running `dstack gateway` without a subcommand is equivalent to `dstack gateway list`. Gateways are created with `dstack apply` using a `gateway` configuration type; the commands here let you inspect, update, and remove them.
+
+## Synopsis
+
+```bash
+dstack gateway [SUBCOMMAND] [OPTIONS]
+```
+
+## Subcommands
+
+<AccordionGroup>
+  <Accordion title="dstack gateway list">
+    Display the names, addresses, and status of all gateways configured in the project.
+
+    ```bash
+    dstack gateway list [OPTIONS]
+    ```
+
+    ### Options
+
+    <ParamField path="-w, --watch" type="boolean">
+      Refresh the listing in real time until interrupted with Ctrl+C. Cannot be combined with `--format json`.
+    </ParamField>
+
+    <ParamField path="-v, --verbose" type="boolean">
+      Show additional columns such as gateway IDs and configuration details.
+    </ParamField>
+
+    <ParamField path="--format" type="string" default="plain">
+      Output format: `plain` or `json`.
+    </ParamField>
+
+    <ParamField path="--json" type="boolean">
+      Shorthand for `--format json`.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project to list gateways in. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Examples
+
+    ```bash
+    dstack gateway list
+    ```
+
+    ```
+     GATEWAY   ADDRESS           STATUS  DEFAULT  CREATED
+     main-gw   52.14.22.108      active  yes      3 days ago
+    ```
+
+    Output as JSON:
+
+    ```bash
+    dstack gateway list --json
+    ```
+  </Accordion>
+
+  <Accordion title="dstack gateway delete">
+    Delete the specified gateway. The underlying cloud resource is also removed.
+
+    ```bash
+    dstack gateway delete NAME [OPTIONS]
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string" required>
+      The name of the gateway to delete.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="-y, --yes" type="boolean">
+      Skip the confirmation prompt.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the gateway belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Example
+
+    ```bash
+    dstack gateway delete main-gw
+    ```
+
+    ```
+     GATEWAY   ADDRESS       STATUS  DEFAULT  CREATED
+     main-gw   52.14.22.108  active  yes      3 days ago
+
+    Do you want to delete the gateway? [y/n]: y
+    Gateway deleted
+    ```
+  </Accordion>
+
+  <Accordion title="dstack gateway update">
+    Update a gateway's configuration, such as its wildcard domain or default status.
+
+    ```bash
+    dstack gateway update NAME [OPTIONS]
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string" required>
+      The name of the gateway to update.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="--set-default" type="boolean">
+      Mark this gateway as the default gateway for the project.
+    </ParamField>
+
+    <ParamField path="--domain" type="string">
+      Set or update the wildcard domain for the gateway (e.g. `example.com`).
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the gateway belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Examples
+
+    Set a custom domain on the gateway:
+
+    ```bash
+    dstack gateway update main-gw --domain example.com
+    ```
+
+    Set the gateway as the project default:
+
+    ```bash
+    dstack gateway update main-gw --set-default
+    ```
+  </Accordion>
+
+  <Accordion title="dstack gateway get">
+    Retrieve detailed information about a single gateway in JSON format.
+
+    ```bash
+    dstack gateway get NAME --json
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string" required>
+      The name of the gateway.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="--json" type="boolean" required>
+      Output the gateway as JSON. Currently required.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the gateway belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Example
+
+    ```bash
+    dstack gateway get main-gw --json
+    ```
+
+    ```json
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "name": "main-gw",
+      "project_name": "main",
+      "status": "active",
+      "ip_address": "52.14.22.108",
+      "wildcard_domain": "example.com",
+      "default": true
+    }
+    ```
+  </Accordion>
+</AccordionGroup>

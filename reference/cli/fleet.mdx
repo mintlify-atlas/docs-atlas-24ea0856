@@ -1,0 +1,158 @@
+---
+title: "dstack fleet: manage fleets and instances"
+description: "List, inspect, and delete dstack fleets and their instances. Cloud instances are terminated when a fleet or individual instance is deleted."
+---
+
+`dstack fleet` is the command group for managing fleets — pools of compute instances that dstack provisions and reuses across runs. Running `dstack fleet` without a subcommand is equivalent to `dstack fleet list`. Cloud-backed instances are terminated when deleted; SSH fleet hosts are only de-registered from dstack and are not shut down.
+
+## Synopsis
+
+```bash
+dstack fleet [SUBCOMMAND] [OPTIONS]
+```
+
+## Subcommands
+
+<AccordionGroup>
+  <Accordion title="dstack fleet list">
+    Display all fleets and their instances in the current project.
+
+    ```bash
+    dstack fleet list [OPTIONS]
+    ```
+
+    ### Options
+
+    <ParamField path="-w, --watch" type="boolean">
+      Refresh the listing in real time until interrupted with Ctrl+C.
+    </ParamField>
+
+    <ParamField path="-v, --verbose" type="boolean">
+      Show additional columns such as instance IDs and backend details.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project to list fleets in. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Example
+
+    ```bash
+    dstack fleet list
+    ```
+
+    ```
+     FLEET    INSTANCE  BACKEND  RESOURCES                 PRICE  STATUS  CREATED
+     default  0         gcp      4xCPU, 16GB, 100GB (disk) $0.05  idle    5 mins ago
+     default  1         gcp      4xCPU, 16GB, 100GB (disk) $0.05  idle    5 mins ago
+    ```
+
+    Watch fleet status update in real time:
+
+    ```bash
+    dstack fleet list -w
+    ```
+  </Accordion>
+
+  <Accordion title="dstack fleet delete">
+    Delete a fleet or specific instances within a fleet. When deleting a cloud-backed fleet, all instances are terminated. Deleting individual instances with `-i` removes only those instances and keeps the fleet intact.
+
+    ```bash
+    dstack fleet delete NAME [OPTIONS]
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string" required>
+      The name of the fleet to delete.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="-i, --instance" type="number">
+      Instance number to delete. Repeatable. When specified, only the listed instances are removed and the fleet itself is kept.
+    </ParamField>
+
+    <ParamField path="-y, --yes" type="boolean">
+      Skip the confirmation prompt.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the fleet belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Examples
+
+    Delete an entire fleet and terminate all its instances:
+
+    ```bash
+    dstack fleet delete my-fleet
+    ```
+
+    ```
+    Delete the fleet `my-fleet`? [y/n]: y
+    Fleet `my-fleet` deleted
+    ```
+
+    Delete only instance 1 from a fleet, leaving the fleet intact:
+
+    ```bash
+    dstack fleet delete my-fleet -i 1
+    ```
+
+    ```
+    Delete the fleet `my-fleet` instances [1]? [y/n]: y
+    Fleet `my-fleet` instances deleted
+    ```
+
+    Delete multiple specific instances without prompting:
+
+    ```bash
+    dstack fleet delete my-fleet -i 0 -i 2 -y
+    ```
+  </Accordion>
+
+  <Accordion title="dstack fleet get">
+    Retrieve detailed information about a single fleet in JSON format.
+
+    ```bash
+    dstack fleet get (NAME | --id ID) --json
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string">
+      The name of the fleet. Mutually exclusive with `--id`.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="--id" type="string">
+      The UUID of the fleet. Mutually exclusive with `NAME`.
+    </ParamField>
+
+    <ParamField path="--json" type="boolean" required>
+      Output the fleet as JSON. Currently required.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the fleet belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Example
+
+    ```bash
+    dstack fleet get my-fleet --json
+    ```
+
+    ```json
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "name": "my-fleet",
+      "project_name": "main",
+      "status": "active",
+      "instances": [...]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>

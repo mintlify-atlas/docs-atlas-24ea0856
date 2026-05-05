@@ -1,0 +1,421 @@
+---
+title: "Dev Environments: Remote Cloud Development on GPUs"
+description: "Dev environments provision remote GPU instances accessible via VS Code or SSH. Set Python version, Docker image, GPU resources, volumes, and init commands."
+keywords: ["dev environment", "VS Code", "JupyterLab", "remote development", "GPU", "SSH", "dstack"]
+---
+
+A dev environment provisions a remote instance and connects it to your desktop IDE or SSH client. This lets you develop against cloud hardware — GPUs, large memory, or specialized accelerators — exactly as if it were a local machine.
+
+<Info>
+  Before running a dev environment, make sure you have [installed](/installation) the server and CLI, and created a [fleet](/concepts/fleets).
+</Info>
+
+## Create a dev environment
+
+Define a dev environment configuration in a YAML file. The filename must end with `.dstack.yml` (e.g., `dev.dstack.yml`).
+
+```yaml examples/.dstack.yml
+type: dev-environment
+# Name is optional; generated randomly if omitted
+name: vscode
+
+python: "3.11"
+# Uncomment to use a custom Docker image
+#image: huggingface/trl-latest-gpu
+
+ide: vscode
+
+# Uncomment to use spot instances
+#spot_policy: auto
+
+resources:
+  gpu: 24GB
+```
+
+Pass the configuration to `dstack apply`:
+
+```shell
+$ dstack apply -f examples/.dstack.yml
+
+ #  BACKEND  REGION    RESOURCES                SPOT  PRICE
+ 1  runpod   CA-MTL-1  9xCPU, 48GB, A5000:24GB  yes   $0.11
+ 2  runpod   EU-SE-1   9xCPU, 43GB, A5000:24GB  yes   $0.11
+ 3  gcp      us-west4  4xCPU, 16GB, L4:24GB     yes   $0.214516
+
+Submit the run vscode? [y/n]: y
+
+Launching `vscode`...
+---> 100%
+
+To open in VS Code Desktop, use this link:
+  vscode://vscode-remote/ssh-remote+vscode/workflow
+
+To connect via SSH, use: `ssh vscode`
+```
+
+dstack automatically provisions an instance and sets up the IDE. Open the link from the output in your desktop VS Code to connect.
+
+<Note>
+  The `ide` property is optional. If omitted, no IDE is pre-installed, but the dev environment is still accessible via SSH using `ssh <run name>`.
+</Note>
+
+<Note>
+  On Windows, dstack works both natively and inside WSL. For dev environments, avoid running `dstack apply` inside WSL due to a [VS Code issue](https://github.com/microsoft/vscode-remote-release/issues/937).
+</Note>
+
+## Configuration options
+
+### Initialization
+
+Use the `init` property to run commands at startup, pre-configuring the environment before you start working:
+
+```yaml examples/.dstack.yml
+type: dev-environment
+name: vscode
+
+python: "3.11"
+ide: vscode
+
+init:
+  - pip install wandb
+```
+
+### Resources
+
+Specify exact values or ranges for resource requirements. Ranges use `..` as a separator (e.g., `24GB..` means at least 24 GB).
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+ide: vscode
+
+resources:
+  # 16 or more x86_64 cores
+  cpu: 16..
+  # 200 GB or more RAM
+  memory: 200GB..
+  # 4 GPUs from 40 GB to 80 GB
+  gpu: 40GB..80GB:4
+  # Shared memory (required for multi-GPU)
+  shm_size: 16GB
+  # Disk size
+  disk: 500GB
+```
+
+The `cpu` property accepts architecture and count — e.g., `x86:16` (16 x86 cores) or `arm:8..` (at least 8 ARM cores). If unset, dstack infers it from the GPU or defaults to `x86`.
+
+The `gpu` property accepts vendor, model, memory, and count — e.g., `nvidia`, `A100`, `A100:80GB`, `A100:2`, `24GB..40GB:2`, or `A100:40GB:2`. If vendor is omitted, dstack infers it from the model or defaults to `nvidia`.
+
+<Accordion title="Shared memory">
+  If you use parallel communicating processes (e.g., PyTorch dataloaders), configure `shm_size` (e.g., `16GB`) to increase the shared memory available inside the container.
+</Accordion>
+
+### Docker
+
+#### Default image
+
+When `image` is not specified, dstack uses its [base Docker image](https://github.com/dstackai/dstack/tree/master/docker/base), which includes `uv`, `python`, `pip`, essential CUDA drivers, `mpirun`, and NCCL tests.
+
+Set the `python` property to pre-install a specific Python version:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+python: "3.12"
+
+ide: vscode
+```
+
+#### NVCC
+
+The base image does not include `nvcc` by default. If you need to build custom CUDA kernels, set `nvcc: true`:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+python: "3.12"
+nvcc: true
+
+ide: vscode
+init:
+  - uv pip install flash_attn --no-build-isolation
+```
+
+#### Custom image
+
+Specify your own Docker image with `image`:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+image: huggingface/trl-latest-gpu
+
+ide: vscode
+```
+
+#### Docker in Docker
+
+Set `docker: true` to enable the Docker CLI inside the dev environment. This lets you run or build images, or use Docker Compose:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+docker: true
+
+ide: vscode
+init:
+  - docker run --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi
+```
+
+Cannot be used with `python` or `image`. Not supported on `runpod`, `vastai`, or `kubernetes`.
+
+#### Privileged mode
+
+Set `privileged: true` to enable privileged mode. Not supported on `runpod`, `vastai`, or `kubernetes`.
+
+#### Private registry
+
+Use `registry_auth` to provide credentials for a private Docker registry:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+env:
+  - NGC_API_KEY
+
+image: nvcr.io/nim/deepseek-ai/deepseek-r1-distill-llama-8b
+registry_auth:
+  username: $oauthtoken
+  password: ${{ env.NGC_API_KEY }}
+
+ide: vscode
+```
+
+### Environment variables
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+env:
+  - HF_TOKEN
+  - HF_HUB_ENABLE_HF_TRANSFER=1
+
+ide: vscode
+```
+
+If you don't assign a value (see `HF_TOKEN` above), dstack requires the value to be passed via the CLI or set in the current process.
+
+<Accordion title="System environment variables">
+  The following environment variables are available in every run by default:
+
+  | Name | Description |
+  |------|-------------|
+  | `DSTACK_RUN_NAME` | The name of the run |
+  | `DSTACK_REPO_ID` | The ID of the repo |
+  | `DSTACK_GPUS_NUM` | The total number of GPUs in the run |
+  | `DSTACK_WORKING_DIR` | The working directory of the run |
+  | `DSTACK_REPO_DIR` | The directory where the repo is mounted (if any) |
+</Accordion>
+
+### Files
+
+Mount local files into the container with the `files` property. Each entry maps a local path to a container path:
+
+```yaml examples/.dstack.yml
+type: dev-environment
+name: vscode
+
+files:
+  - .:examples            # Maps the directory containing .dstack.yml to <working dir>/examples
+  - ~/.ssh/id_rsa:/root/.ssh/id_rsa
+
+ide: vscode
+```
+
+If the local path is relative, it resolves relative to the configuration file. If the container path is relative, it resolves relative to the working directory. The container path is optional — if omitted, it is calculated automatically.
+
+<Accordion title="File size limit">
+  Each file or folder entry is limited to 2 MB. Exclude unnecessary files using `.gitignore` or `.dstackignore`. You can raise the limit by setting `DSTACK_SERVER_CODE_UPLOAD_LIMIT`.
+</Accordion>
+
+### Repos
+
+Clone a local or remote Git repo into the container with `repos`:
+
+```yaml examples/.dstack.yml
+type: dev-environment
+name: vscode
+
+repos:
+  # Clone the repo from the parent directory to <working dir>
+  - ..
+
+ide: vscode
+```
+
+dstack clones the repo on the instance, applies your local changes, and mounts it — so the container matches your local state.
+
+<Accordion title="Custom clone directory">
+  Override the clone location with a colon-separated path:
+
+  ```yaml
+  repos:
+    - ..:/my-repo
+  ```
+
+  If the target directory is not empty, the run fails unless you set `if_exists: skip`.
+</Accordion>
+
+<Accordion title="Clone from a URL">
+  Provide a URL to clone a remote repo without cloning it locally first:
+
+  ```yaml
+  repos:
+    - https://github.com/dstackai/dstack
+  ```
+</Accordion>
+
+<Accordion title="Private repos">
+  dstack automatically uses your default Git credentials from `~/.ssh/config` or `~/.config/gh/hosts.yml`. For custom credentials, use `dstack init` before submitting.
+</Accordion>
+
+### Retry policy
+
+By default, dstack fails the run if no capacity is found or if the instance is interrupted. Configure `retry` to retry automatically:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+ide: vscode
+
+retry:
+  on_events: [no-capacity, error, interruption]
+  # Retry for up to 1 hour
+  duration: 1h
+```
+
+<Info>
+  The `duration` is measured as run age for `no-capacity`, and as time since the last event for `interruption` and `error`.
+</Info>
+
+### Inactivity duration
+
+Set `inactivity_duration` to stop the dev environment automatically after a period of inactivity:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+ide: vscode
+
+# Stop after 2 hours of inactivity
+inactivity_duration: 2h
+```
+
+The dev environment becomes inactive when you close the VS Code remote window, close any `ssh <run name>` shells, and stop the `dstack apply` or `dstack attach` command. If you go offline without stopping manually, it becomes inactive within about 3 minutes.
+
+```shell
+$ dstack ps -v
+ NAME    BACKEND  RESOURCES       PRICE    STATUS                 SUBMITTED
+ vscode  runpod   2xCPU, 8GB,     $0.0286  running                8 mins ago
+                  100.0GB (disk)           (inactive for 2m 34s)
+```
+
+Reattach with `dstack attach` to reset the inactivity timer. As long as the configuration has a `name`, you can update `inactivity_duration` in-place without restarting — just change the value and run `dstack apply` again.
+
+### Utilization policy
+
+Set a policy to auto-terminate the dev environment if GPU utilization stays below a threshold:
+
+```yaml .dstack.yml
+type: dev-environment
+name: my-dev
+
+python: "3.12"
+ide: cursor
+
+resources:
+  gpu: H100:8
+
+utilization_policy:
+  min_gpu_utilization: 10
+  time_window: 1h
+```
+
+This terminates the run if any GPU stays below 10% utilization for 1 hour.
+
+### Schedule
+
+Start a dev environment on a recurring schedule using cron syntax (UTC):
+
+```yaml .dstack.yml
+type: dev-environment
+ide: vscode
+schedule:
+  cron: "0 8 * * mon-fri"  # At 8:00 UTC, Monday through Friday
+```
+
+Combine `schedule` with `max_duration` or `utilization_policy` to shut down automatically when not needed.
+
+<Accordion title="Cron syntax reference">
+  dstack uses POSIX cron syntax. Days of the week start from Monday (`0` = Monday).
+
+  ```
+  ┌───────────── minute (0-59)
+  │ ┌───────────── hour (0-23)
+  │ │ ┌───────────── day of the month (1-31)
+  │ │ │ ┌───────────── month (1-12 or jan-dec)
+  │ │ │ │ ┌───────────── day of the week (0-6 or mon-sun)
+  * * * * *
+  ```
+
+  | Operator | Description | Example |
+  |----------|-------------|---------|
+  | `*` | Any value | `0 * * * *` — every hour at minute 0 |
+  | `,` | Value list | `15,45 10 * * *` — at 10:15 and 10:45 |
+  | `-` | Range | `0 1-3 * * *` — at 1:00, 2:00, and 3:00 |
+  | `/` | Step | `*/10 8-10 * * *` — every 10 min from 8:00 to 10:59 |
+</Accordion>
+
+### Spot policy
+
+By default, dstack uses on-demand instances. Set `spot_policy` to `spot`, `on-demand`, or `auto`:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode
+
+ide: vscode
+spot_policy: auto
+```
+
+<Info>
+  Dev environments support additional options including `backends`, `regions`, `max_price`, and `max_duration`. See the [dev-environment reference](https://dstack.ai/docs/reference/dstack.yml/dev-environment) for the full list.
+</Info>
+
+## Manage runs
+
+Use `dstack ps` to list running dev environments. Stop a run with `dstack stop <name>` or by pressing `Ctrl+C` in the terminal where `dstack apply` is attached.
+
+<CardGroup cols={2}>
+  <Card title="Tasks" href="/concepts/tasks" icon="play">
+    Run training and batch processing jobs.
+  </Card>
+  <Card title="Services" href="/concepts/services" icon="globe">
+    Deploy models and web apps as endpoints.
+  </Card>
+  <Card title="Fleets" href="/concepts/fleets" icon="server">
+    Manage the compute instances powering your dev environments.
+  </Card>
+  <Card title="Volumes" href="/concepts/volumes" icon="database">
+    Attach persistent storage to your dev environments.
+  </Card>
+</CardGroup>

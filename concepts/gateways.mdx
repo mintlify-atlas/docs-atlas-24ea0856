@@ -1,0 +1,137 @@
+---
+title: "Gateways: HTTPS, Custom Domains, and Traffic Control"
+description: "Gateways manage ingress for dstack services with automatic TLS via Let's Encrypt, custom domains, wildcard DNS, auto-scaling, and per-client rate limiting."
+---
+
+Gateways manage ingress traffic for [services](/concepts/services). They provision a cloud instance that acts as a reverse proxy, handling TLS termination, wildcard DNS routing, auto-scaling coordination, and rate limiting. A gateway is required when you want to expose services on a custom domain, enable HTTPS, or use auto-scaling.
+
+## Create a gateway
+
+Define a gateway configuration in a YAML file ending with `.dstack.yml`:
+
+```yaml gateway.dstack.yml
+type: gateway
+# Name of the gateway
+name: example-gateway
+
+# Gateways are bound to a specific backend and region
+backend: aws
+region: eu-west-1
+
+# Domain used to generate service endpoints
+domain: example.com
+```
+
+Pass the configuration to `dstack apply`:
+
+```shell
+$ dstack apply -f gateway.dstack.yml
+The example-gateway doesn't exist. Create it? [y/n]: y
+
+Provisioning...
+---> 100%
+
+ BACKEND  REGION     NAME             HOSTNAME  DOMAIN       DEFAULT  STATUS
+ aws      eu-west-1  example-gateway            example.com  ✓        submitted
+```
+
+Once the gateway is provisioned and assigned a hostname, configure your DNS: add a wildcard record `*.example.com` pointing to the gateway's hostname. Use an `A` record if the hostname is an IP address (most cases), or a `CNAME` if it is a domain name (private gateways, Kubernetes).
+
+## Configuration options
+
+### Domain
+
+The `domain` property is required before creating a gateway. It determines the base domain for all service endpoints — each service deployed through this gateway is reachable at `https://<run name>.<gateway domain>/`.
+
+### Backend
+
+Gateways can be created on `aws`, `azure`, `gcp`, or `kubernetes` backends. This does not limit where services run — services can use any backend supported by dstack, including ones that cannot host gateways.
+
+<Accordion title="Kubernetes">
+  Gateways on the `kubernetes` backend require an external load balancer. Managed Kubernetes offerings typically include one. For self-hosted Kubernetes, you must provide a load balancer yourself.
+</Accordion>
+
+### Certificate
+
+By default, dstack provisions an SSL certificate via Let's Encrypt when a service is deployed through the gateway, automatically enabling HTTPS.
+
+If you disable [public IP](#public-ip) or don't need HTTPS, set `certificate: null`.
+
+<Accordion title="Certificate types">
+  dstack supports three certificate types:
+
+  - **`lets-encrypt`** (default) — Automatic certificates via [Let's Encrypt](https://letsencrypt.org/). Requires a public IP.
+  - **`acm`** — Certificates managed by [AWS Certificate Manager](https://aws.amazon.com/certificate-manager/). AWS only. TLS is terminated at the load balancer. Requires a VPC with at least two subnets in different availability zones.
+  - **`null`** — No certificate. Services use HTTP.
+</Accordion>
+
+<Note>
+  By default, services set `https: true`, which requires a certificate. Set `https: auto` on a service to detect gateway HTTPS support automatically.
+</Note>
+
+### Public IP
+
+By default, the gateway provisions a public IP. Set `public_ip: false` to make it private, restricting access to your internal network:
+
+```yaml gateway.dstack.yml
+type: gateway
+name: private-gateway
+
+backend: aws
+region: eu-west-1
+domain: example.com
+
+public_ip: false
+certificate: null
+```
+
+Private gateways are currently supported on `aws` and `gcp`.
+
+### Instance type
+
+dstack provisions a small instance for the gateway by default. For high-traffic services, specify a larger instance type:
+
+```yaml gateway.dstack.yml
+type: gateway
+name: example-gateway
+
+backend: aws
+region: eu-west-1
+
+instance_type: t3.large
+
+domain: example.com
+```
+
+<Info>
+  For all gateway configuration options, see the [gateway reference](https://dstack.ai/docs/reference/dstack.yml/gateway).
+</Info>
+
+## Manage gateways
+
+### List gateways
+
+```shell
+$ dstack gateway list
+```
+
+This lists all existing gateways and their status, including hostname and domain.
+
+### Delete a gateway
+
+Pass the configuration to `dstack delete`:
+
+```shell
+$ dstack delete -f examples/inference/gateway.dstack.yml
+```
+
+Or delete by name with `dstack gateway delete <name>`.
+
+<CardGroup cols={2}>
+  <Card title="Services" href="/concepts/services" icon="globe">
+    Deploy models and web apps through a gateway.
+  </Card>
+  <Card title="Fleets" href="/concepts/fleets" icon="server">
+    Manage the compute instances running your services.
+  </Card>
+</CardGroup>

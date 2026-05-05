@@ -1,0 +1,74 @@
+---
+title: "Projects: Isolate Teams and Manage Access in dstack"
+description: "Projects isolate teams and resources in dstack. Each project has its own backends, members, and role-based access controls managed via the UI or config file."
+---
+
+Projects are the primary organizational unit in dstack. Each project provides an isolated environment where a team can configure its own backends, manage members, and control access to resources such as fleets, runs, and volumes. You can manage project settings, users, and permissions through the dstack UI, while backends can also be configured via `~/.dstack/server/config.yml`.
+
+## Project backends
+
+A global admin or a project admin can configure backends directly on the project settings page. This is equivalent to configuring backends in `~/.dstack/server/config.yml`, but changes take effect immediately without requiring a server restart.
+
+Navigate to **Project settings → Backends** and add or edit backend credentials for any supported cloud provider or Kubernetes cluster.
+
+For backend configuration details and YAML examples for each supported provider, see [Backends](/concepts/backends).
+
+## User roles
+
+dstack has two levels of user roles: **global** and **project-level**.
+
+### Global admins
+
+A user can be assigned or unassigned the global admin role from the user account settings page. Only another global admin can make this change. Global admins can manage all projects and users across the entire dstack server.
+
+### Project roles
+
+Users are added to projects and assigned a project-level role on the project settings page under **Members**.
+
+dstack supports three project roles:
+
+- **Admin** — can manage all project settings, including backends, gateways, and members.
+- **Manager** — can manage project members but cannot configure backends or gateways.
+- **User** — can manage project resources including runs, fleets, and volumes.
+
+## Project exports
+
+Projects can export resources such as fleets to other projects, allowing them to be used across team boundaries. See the Exports documentation for details.
+
+## Authorization
+
+### User tokens
+
+When a user account is created, dstack issues an authentication token. You can find this token on the user account settings page under **Token**. This token is used to authenticate with the dstack control plane UI, CLI, and API.
+
+### Setting up the CLI
+
+You can configure multiple projects on the client and set the default project using the `dstack project` CLI command:
+
+```bash
+dstack project add \
+    --name main \
+    --url http://127.0.0.1:3000 \
+    --token bbae0f28-d3dd-4820-bf61-8f4bb40815da
+```
+
+The exact command for each project is also shown on the project's settings page.
+
+<Note>
+  In addition to the UI, you can manage projects, users, and user permissions via the [HTTP API](/reference/api/http).
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Backends" href="/concepts/backends" icon="cloud">
+    Configure cloud providers and Kubernetes clusters for your project.
+  </Card>
+  <Card title="Fleets" href="/concepts/fleets" icon="server">
+    Provision and share compute resources within and across projects.
+  </Card>
+  <Card title="Server config reference" href="/reference/server/config" icon="file-code">
+    Configure projects and backends in `~/.dstack/server/config.yml`.
+  </Card>
+  <Card title="HTTP API reference" href="/reference/api/http" icon="code">
+    Manage projects and users programmatically via the HTTP API.
+  </Card>
+</CardGroup>

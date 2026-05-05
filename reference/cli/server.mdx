@@ -1,0 +1,93 @@
+---
+title: "dstack server: start the dstack control plane server"
+description: "dstack server starts the control plane API and web UI. Configure bind address, port, log level, and admin token for local or production deployments."
+---
+
+`dstack server` starts the dstack control plane, which provides the API and web UI used by the CLI and Python SDK. By default the server binds to `127.0.0.1:3000` and logs at the `INFO` level. The host and port can also be set via environment variables (`DSTACK_SERVER_HOST` and `DSTACK_SERVER_PORT`), making the command suitable for containerised or systemd-managed deployments. Server dependencies must be installed; if they are missing, the command prints an install hint and exits.
+
+<Note>
+  Server dependencies are not included in the base `dstack` package. Install them with `pip install "dstack[server]"` or `pip install "dstack[all]"`.
+</Note>
+
+## Synopsis
+
+```bash
+dstack server [OPTIONS]
+```
+
+## Options
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Hostname or IP address for the server to bind to. Overrides the `DSTACK_SERVER_HOST` environment variable.
+</ParamField>
+
+<ParamField path="-p, --port" type="number" default="3000">
+  Port for the server to listen on. Overrides the `DSTACK_SERVER_PORT` environment variable.
+</ParamField>
+
+<ParamField path="-d, --debug" type="boolean">
+  Enable `DEBUG` log level. Mutually exclusive with `--log-level`.
+</ParamField>
+
+<ParamField path="-l, --log-level" type="string" default="INFO">
+  Set the server log level explicitly: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Overrides `DSTACK_SERVER_LOG_LEVEL`. Mutually exclusive with `--debug`.
+</ParamField>
+
+<ParamField path="-y, --yes" type="boolean">
+  Automatically confirm prompts such as updating the default project configuration without asking.
+</ParamField>
+
+<ParamField path="-n, --no" type="boolean">
+  Automatically decline prompts such as updating the default project configuration.
+</ParamField>
+
+<ParamField path="--token" type="string">
+  Admin user token to set on startup. Overrides `DSTACK_SERVER_ADMIN_TOKEN`.
+</ParamField>
+
+## Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `DSTACK_SERVER_HOST` | Default bind address (overridden by `--host`). |
+| `DSTACK_SERVER_PORT` | Default port (overridden by `--port`). |
+| `DSTACK_SERVER_LOG_LEVEL` | Default log level (overridden by `--log-level`). |
+| `DSTACK_SERVER_ADMIN_TOKEN` | Admin token (overridden by `--token`). |
+| `DSTACK_SERVER_UVICORN_LOG_LEVEL` | Log level for the Uvicorn ASGI server. Defaults to `ERROR`. |
+
+## Examples
+
+Start the server with default settings:
+
+```bash
+dstack server
+```
+
+```
+Starting dstack server at http://127.0.0.1:3000
+The admin token is: abc123...
+```
+
+Bind to all interfaces on port 8000:
+
+```bash
+dstack server --host 0.0.0.0 --port 8000
+```
+
+Start with debug logging:
+
+```bash
+dstack server -d
+```
+
+Start with a fixed admin token and auto-confirm configuration updates:
+
+```bash
+dstack server --token my-secret-token -y
+```
+
+Set the log level to `WARNING` to reduce noise in production:
+
+```bash
+dstack server -l WARNING
+```

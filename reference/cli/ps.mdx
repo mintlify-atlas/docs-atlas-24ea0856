@@ -1,0 +1,86 @@
+---
+title: "dstack ps: list and monitor run status"
+description: "Show the status of dstack runs. By default displays active runs; use --all to include finished runs or --last N to limit the output to the most recent runs."
+---
+
+`dstack ps` lists the runs in the current project and their status. By default it shows only runs that have not yet finished, plus the single most recently finished run. Use `--all` to display the full history, `--last N` to restrict output to the N most recent runs, or `--watch` to stream live status updates to the terminal.
+
+## Synopsis
+
+```bash
+dstack ps [OPTIONS]
+```
+
+## Options
+
+<ParamField path="-a, --all" type="boolean">
+  Show all runs, including every finished run. By default only unfinished runs plus the last finished run are shown.
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Show additional detail for each run, such as per-job status and replica information.
+</ParamField>
+
+<ParamField path="-w, --watch" type="boolean">
+  Stream run status updates in real time until interrupted with Ctrl+C. Cannot be combined with `--format json`.
+</ParamField>
+
+<ParamField path="-n, --last" type="number">
+  Show only the last N runs. Implies `--all`.
+</ParamField>
+
+<ParamField path="--format" type="string" default="plain">
+  Output format: `plain` or `json`.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Shorthand for `--format json`.
+</ParamField>
+
+<ParamField path="--project" type="string">
+  The project to list runs in. Defaults to `$DSTACK_PROJECT`.
+</ParamField>
+
+## Examples
+
+List active runs in the current project:
+
+```bash
+dstack ps
+```
+
+```
+ RUN       CONFIGURATION  STATUS   BACKEND  RESOURCES              PRICE  CREATED
+ vscode    .dstack.yml    running  gcp      4xCPU, 16GB, 100GB     $0.05  10 mins ago
+```
+
+Show all runs including finished ones:
+
+```bash
+dstack ps -a
+```
+
+```
+ RUN           CONFIGURATION    STATUS  BACKEND  RESOURCES              PRICE  CREATED
+ vscode        .dstack.yml      running gcp      4xCPU, 16GB, 100GB     $0.05  10 mins ago
+ streamlit-1   task.dstack.yml  done    aws      2xCPU, 8GB, 100GB      $0.02  1 hour ago
+ streamlit-0   task.dstack.yml  failed  aws      2xCPU, 8GB, 100GB      $0.02  2 hours ago
+```
+
+Show only the three most recent runs:
+
+```bash
+dstack ps --last 3
+```
+
+Watch run statuses refresh in real time:
+
+```bash
+dstack ps -w
+```
+
+Output all runs as JSON for scripting:
+
+```bash
+dstack ps -a --json
+```

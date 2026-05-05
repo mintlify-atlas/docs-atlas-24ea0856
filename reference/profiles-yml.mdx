@@ -1,0 +1,206 @@
+---
+title: "profiles.yml and config.yml reference"
+description: "Reference for ~/.dstack/profiles.yml and ~/.dstack/config.yml — reusable run defaults including spot policy, regions, and retry, plus server connection config."
+---
+
+dstack reads two configuration files from `~/.dstack/` on the client machine. `config.yml` stores server connection details, while `profiles.yml` defines reusable profiles that apply default run parameters without repeating them in every `.dstack.yml` file.
+
+Profiles can also be defined locally in `.dstack/profiles.yml` at the project root. A profile is activated automatically if marked `default: true`, or explicitly by passing `--profile <name>` to `dstack apply`.
+
+## ~/.dstack/config.yml
+
+The `config.yml` file stores one or more server connections. `dstack config` writes this file automatically when you connect to a server.
+
+```yaml
+# ~/.dstack/config.yml
+server: https://my-server.dstack.ai
+token: my-token
+project: my-project
+```
+
+<ParamField path="server" type="string" required>
+  The URL of the dstack server (e.g., `https://my-server.dstack.ai`).
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  The authentication token for the server.
+</ParamField>
+
+<ParamField path="project" type="string">
+  The default project to use when `--project` is not specified on the CLI.
+</ParamField>
+
+## ~/.dstack/profiles.yml
+
+The `profiles.yml` file defines a list of profiles. Each profile supports all parameters that a run configuration supports (resources, spot policy, backends, etc.).
+
+```yaml
+# ~/.dstack/profiles.yml
+profiles:
+  - name: gpu-dev
+    default: true
+    spot_policy: auto
+    max_price: 2.0
+    max_duration: 8h
+    backends: [aws, gcp]
+    resources:
+      gpu: A100:1
+      memory: 32GB
+  - name: on-demand
+    spot_policy: on-demand
+    creation_policy: reuse-or-create
+```
+
+### Profile fields
+
+<ParamField path="name" type="string" required>
+  The profile name. Pass this value to `dstack apply --profile <name>` to activate it.
+</ParamField>
+
+<ParamField path="default" type="boolean">
+  If `true`, this profile is applied automatically to every `dstack apply` call without needing `--profile`. Defaults to `false`.
+</ParamField>
+
+<ParamField path="spot_policy" type="string">
+  Policy for provisioning spot or on-demand instances: `spot`, `on-demand`, or `auto`. Defaults to `on-demand`.
+</ParamField>
+
+<ParamField path="backends" type="string[]">
+  The backends to consider for provisioning (e.g., `[aws, gcp]`).
+</ParamField>
+
+<ParamField path="regions" type="string[]">
+  The regions to consider for provisioning (e.g., `[eu-west-1, us-west4, westeurope]`).
+</ParamField>
+
+<ParamField path="availability_zones" type="string[]">
+  The availability zones to consider for provisioning (e.g., `[eu-west-1a, us-west4-a]`).
+</ParamField>
+
+<ParamField path="instance_types" type="string[]">
+  Cloud-specific instance types to consider (e.g., `[p3.8xlarge, n1-standard-4]`).
+</ParamField>
+
+<ParamField path="max_price" type="number">
+  Maximum instance price per hour, in dollars.
+</ParamField>
+
+<ParamField path="max_duration" type="string">
+  Maximum run duration in running state (e.g., `2h`, `1d`). After it elapses, the run is stopped automatically. Use `off` for unlimited duration. Defaults to `off`.
+</ParamField>
+
+<ParamField path="stop_duration" type="string">
+  Maximum duration for graceful run stopping. After this elapses, the run is force-stopped and volumes are force-detached. Use `off` for unlimited. Defaults to `5m`.
+</ParamField>
+
+<ParamField path="idle_duration" type="string">
+  Time to wait before terminating idle instances. When a run reuses an existing fleet, the fleet's `idle_duration` applies. When provisioning a new instance, the shorter of the fleet's and run's values is used. Use `off` for unlimited. Defaults to `5m` for runs and `3d` for fleets. Applies to VM-based backends only.
+</ParamField>
+
+<ParamField path="creation_policy" type="string">
+  Policy for using instances from fleets: `reuse` (only reuse existing fleet instances) or `reuse-or-create` (reuse if available, otherwise provision a new instance). Defaults to `reuse-or-create`.
+</ParamField>
+
+<ParamField path="reservation" type="string">
+  An existing reservation to use for instance provisioning. Supports AWS Capacity Reservations, AWS Capacity Blocks, and GCP reservations.
+</ParamField>
+
+<ParamField path="fleets" type="string[]">
+  The fleets considered for instance reuse. For fleets in the current project, specify fleet names. For imported fleets, use `<project name>/<fleet name>`.
+</ParamField>
+
+<ParamField path="retry" type="object | boolean">
+  Policy for resubmitting a failed run. Defaults to `false`. Set to `true` to retry on all events. Or use an object:
+
+  ```yaml
+  retry:
+    on_events: [no-capacity, interruption, error]
+    duration: 4h
+  ```
+
+  - `on_events` — events that trigger retry: `no-capacity`, `interruption`, `error`. Omit to retry on all events.
+  - `duration` — maximum retry period (e.g., `4h`, `1d`).
+</ParamField>
+
+<ParamField path="utilization_policy" type="object">
+  Terminate a run if GPU utilization stays below a threshold. Contains:
+  - `min_gpu_utilization` — minimum required GPU utilization percentage (0–100)
+  - `time_window` — measurement window (e.g., `30m`, `1h`). Minimum is `5m`
+
+  ```yaml
+  utilization_policy:
+    min_gpu_utilization: 10
+    time_window: 30m
+  ```
+</ParamField>
+
+<ParamField path="startup_order" type="string">
+  Order in which master and worker jobs start in multi-node runs: `any`, `master-first`, or `workers-first`. Defaults to `any`.
+</ParamField>
+
+<ParamField path="stop_criteria" type="string">
+  When a multi-node run is considered finished: `all-done` or `master-done`. Defaults to `all-done`.
+</ParamField>
+
+<ParamField path="schedule" type="object">
+  Schedule for starting the run automatically at a UTC time. Contains:
+  - `cron` — a cron expression or list of cron expressions (e.g., `"0 9 * * 1-5"`)
+
+  ```yaml
+  schedule:
+    cron: "0 9 * * 1-5"
+  ```
+</ParamField>
+
+<ParamField path="tags" type="object">
+  Custom key-value tags to associate with runs that use this profile. Tags are propagated to underlying backend resources. Backend-level tags are not overridden on conflict.
+
+  ```yaml
+  tags:
+    team: ml-research
+    environment: staging
+  ```
+</ParamField>
+
+### Full example
+
+```yaml
+profiles:
+  - name: spot-gpu
+    default: true
+    spot_policy: spot
+    max_price: 1.5
+    max_duration: 1d
+    backends: [aws, azure, lambda]
+    regions: [us-east-1, eastus]
+    resources:
+      gpu: A100:1
+      memory: 32GB
+      disk: 200GB
+    retry:
+      on_events: [no-capacity, interruption]
+      duration: 6h
+    utilization_policy:
+      min_gpu_utilization: 5
+      time_window: 1h
+    tags:
+      project: my-ml-project
+
+  - name: on-demand-cpu
+    spot_policy: on-demand
+    creation_policy: reuse-or-create
+    max_duration: 4h
+    backends: [aws]
+    regions: [us-east-1]
+```
+
+---
+
+<CardGroup cols={2}>
+  <Card title="dstack.yml reference" href="/reference/dstack-yml">
+    All configuration types: dev-environment, task, service, fleet, volume, and gateway.
+  </Card>
+  <Card title="Environment variables" href="/reference/environment-variables">
+    Variables dstack injects into runs and server-side configuration.
+  </Card>
+</CardGroup>

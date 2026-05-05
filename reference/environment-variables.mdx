@@ -1,0 +1,289 @@
+---
+title: "Environment variables reference for dstack"
+description: "All environment variables dstack injects into runs, plus server-side and CLI configuration variables with their defaults and usage."
+---
+
+dstack injects a set of read-only environment variables into every dev environment, task, and service run. These variables expose metadata about the run and the cluster topology, making them useful for distributed training, dynamic configuration, and logging. Separately, the dstack server and CLI each read their own environment variables for configuration.
+
+## Run environment variables
+
+The following variables are automatically available inside containers for all `dev-environment`, `task`, and `service` runs.
+
+| Variable | Description |
+|---|---|
+| `DSTACK_RUN_NAME` | The name of the run. If `name` is not set in the configuration, a random name is assigned (e.g., `wet-mangust-1`). |
+| `DSTACK_RUN_ID` | The UUID of the run. |
+| `DSTACK_JOB_ID` | The UUID of the current job submission. |
+| `DSTACK_REPO_ID` | The ID of the repo associated with the run. |
+| `DSTACK_GPUS_NUM` | The total number of GPUs across all nodes in the run. |
+| `DSTACK_NODES_NUM` | The total number of nodes in the run. |
+| `DSTACK_GPUS_PER_NODE` | The number of GPUs on each node. |
+| `DSTACK_NODE_RANK` | The rank of the current node (0-indexed). |
+| `DSTACK_MASTER_NODE_IP` | The internal IP address of the master node (rank 0). |
+| `DSTACK_NODES_IPS` | The internal IP addresses of all nodes, one per line (delimited by `\n`). |
+| `DSTACK_MPI_HOSTFILE` | Path to a pre-populated MPI hostfile. Use directly with `mpirun --hostfile $DSTACK_MPI_HOSTFILE`. |
+
+### Using `DSTACK_GPUS_NUM`
+
+Use `DSTACK_GPUS_NUM` to configure tensor parallelism dynamically:
+
+```yaml
+type: service
+name: llama31
+
+env:
+  - HF_TOKEN
+commands:
+  - pip install vllm
+  - vllm serve meta-llama/Meta-Llama-3.1-8B-Instruct
+    --max-model-len 4096
+    --tensor-parallel-size $DSTACK_GPUS_NUM
+port: 8000
+model: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+resources:
+  gpu: 24GB
+```
+
+### Using distributed training variables
+
+`DSTACK_NODES_NUM`, `DSTACK_GPUS_PER_NODE`, `DSTACK_NODE_RANK`, and `DSTACK_MASTER_NODE_IP` are designed for multi-node training with PyTorch, `torchrun`, or MPI:
+
+```yaml
+type: task
+name: train-distrib
+
+nodes: 2
+
+python: "3.12"
+env:
+  - NCCL_DEBUG=INFO
+commands:
+  - git clone https://github.com/pytorch/examples.git pytorch-examples
+  - cd pytorch-examples/distributed/ddp-tutorial-series
+  - uv pip install -r requirements.txt
+  - |
+    torchrun \
+      --nproc-per-node=$DSTACK_GPUS_PER_NODE \
+      --node-rank=$DSTACK_NODE_RANK \
+      --nnodes=$DSTACK_NODES_NUM \
+      --master-addr=$DSTACK_MASTER_NODE_IP \
+      --master-port=12345 \
+      multinode.py 50 10
+
+resources:
+  gpu: 24GB:1..2
+```
+
+## Server environment variables
+
+The dstack server reads the following variables at startup. They are equivalent to the corresponding CLI flags and can be used whether the server is run via `dstack server` or deployed with Docker.
+
+<ParamField path="DSTACK_SERVER_HOST" type="string">
+  Bind host for the server. Same effect as `--host`. Defaults to `127.0.0.1`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_PORT" type="integer">
+  Bind port for the server. Same effect as `--port`. Defaults to `3000`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_URL" type="string">
+  The public URL of the server (e.g., `https://my-server.dstack.ai`). Defaults to `http://{DSTACK_SERVER_HOST}:{DSTACK_SERVER_PORT}`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_ADMIN_TOKEN" type="string">
+  The admin authentication token. Same effect as `--token`. Defaults to `None`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_DIR" type="string">
+  Path where the server stores data and configuration files. Defaults to `~/.dstack/server`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_LOG_LEVEL" type="string">
+  Server log level. Same effect as `--log-level`. Defaults to `INFO`.
+
+  ```shell
+  DSTACK_SERVER_LOG_LEVEL=debug dstack server
+  ```
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_LOG_FORMAT" type="string">
+  Log output format: `rich`, `standard`, or `json`. Defaults to `rich`.
+</ParamField>
+
+<ParamField path="DSTACK_DATABASE_URL" type="string">
+  Database URL to use instead of the default SQLite. Currently supports PostgreSQL.
+
+  ```
+  postgresql+asyncpg://myuser:mypassword@localhost:5432/mydatabase
+  ```
+</ParamField>
+
+<ParamField path="DSTACK_DB_POOL_SIZE" type="integer">
+  Database connection pool size. Defaults to `20`.
+</ParamField>
+
+<ParamField path="DSTACK_DB_MAX_OVERFLOW" type="integer">
+  Allowed overflow above the connection pool size. Defaults to `20`.
+</ParamField>
+
+<ParamField path="DSTACK_ENABLE_PROMETHEUS_METRICS" type="string">
+  Set to any value to enable Prometheus metrics collection and export.
+</ParamField>
+
+<ParamField path="DSTACK_DEFAULT_SERVICE_CLIENT_MAX_BODY_SIZE" type="integer">
+  Maximum request body size for services running with a gateway, in bytes. Defaults to 64 MiB.
+</ParamField>
+
+<ParamField path="DSTACK_SERVICE_CLIENT_TIMEOUT" type="integer">
+  Timeout in seconds for HTTP requests from the in-server proxy and gateways to service replicas. Defaults to `60`.
+</ParamField>
+
+<ParamField path="DSTACK_FORBID_SERVICES_WITHOUT_GATEWAY" type="string">
+  Set to any value to prevent registering new services without a gateway.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_CODE_UPLOAD_LIMIT" type="integer">
+  Maximum repo size when uploading diffs or local repos, in bytes. Set to `0` to disable the limit. Defaults to 2 MiB.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_MAX_PROBES_PER_JOB" type="integer">
+  Maximum number of probes allowed in a single run configuration. Validated at apply time.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_MAX_PROBE_TIMEOUT" type="integer">
+  Maximum allowed timeout for a single probe. Validated at apply time.
+</ParamField>
+
+### Log storage
+
+<ParamField path="DSTACK_SERVER_CLOUDWATCH_LOG_GROUP" type="string">
+  CloudWatch Logs group for storing workload logs. If not set, file-based log storage is used.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_CLOUDWATCH_LOG_REGION" type="string">
+  CloudWatch Logs region. Defaults to `None`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_GCP_LOGGING_PROJECT" type="string">
+  GCP Logging project for storing workload logs. If not set, file-based log storage is used.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_FLUENTBIT_HOST" type="string">
+  Fluent-bit host for log forwarding. If set, Fluent-bit log storage is enabled.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_FLUENTBIT_PORT" type="integer">
+  Fluent-bit port. Defaults to `24224`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_FLUENTBIT_PROTOCOL" type="string">
+  Protocol for Fluent-bit: `forward` or `http`. Defaults to `forward`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_FLUENTBIT_TAG_PREFIX" type="string">
+  Log tag prefix for Fluent-bit. Defaults to `dstack`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_ELASTICSEARCH_HOST" type="string">
+  Elasticsearch or OpenSearch host for reading logs back through dstack. Optional. If not set, Fluent-bit runs in ship-only mode.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_ELASTICSEARCH_INDEX" type="string">
+  Elasticsearch or OpenSearch index pattern. Defaults to `dstack-logs`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_ELASTICSEARCH_API_KEY" type="string">
+  API key for authenticating with Elasticsearch or OpenSearch.
+</ParamField>
+
+### Metrics retention
+
+<ParamField path="DSTACK_SERVER_METRICS_RUNNING_TTL_SECONDS" type="integer">
+  Maximum age of metrics samples for running jobs.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_METRICS_FINISHED_TTL_SECONDS" type="integer">
+  Maximum age of metrics samples for finished jobs.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_INSTANCE_HEALTH_TTL_SECONDS" type="integer">
+  Maximum age of instance health check records.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_INSTANCE_HEALTH_MIN_COLLECT_INTERVAL_SECONDS" type="integer">
+  Minimum interval between consecutive health checks of the same instance.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_EVENTS_TTL_SECONDS" type="integer">
+  Maximum age of event records. Set to `0` to disable event storage. Defaults to 30 days.
+</ParamField>
+
+### Storage
+
+<ParamField path="DSTACK_SERVER_S3_BUCKET" type="string">
+  S3 bucket for uploading repo diffs. If unset, diffs are uploaded to the database.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_S3_BUCKET_REGION" type="string">
+  Region of the S3 bucket specified in `DSTACK_SERVER_S3_BUCKET`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_GCS_BUCKET" type="string">
+  GCS bucket for uploading repo diffs. If unset, diffs are uploaded to the database.
+</ParamField>
+
+### Docker registry
+
+<ParamField path="DSTACK_SERVER_DEFAULT_DOCKER_REGISTRY" type="string">
+  Default Docker registry for job images that do not specify an explicit registry. For example, if set to `registry.example`, then `image: ubuntu` is treated as `image: registry.example/ubuntu`. Intended for pull-through cache registries. The default dstack images are also pulled from this registry.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_DEFAULT_DOCKER_REGISTRY_USERNAME" type="string">
+  Username for the default Docker registry. See `DSTACK_SERVER_DEFAULT_DOCKER_REGISTRY_PASSWORD`.
+</ParamField>
+
+<ParamField path="DSTACK_SERVER_DEFAULT_DOCKER_REGISTRY_PASSWORD" type="string">
+  Password for the default Docker registry. Applied only when the image has no explicit registry and the run configuration does not specify `registry_auth`.
+
+  <Warning>
+    This value may be visible to anyone who can SSH into instances managed by dstack.
+  </Warning>
+</ParamField>
+
+### Background processing
+
+<ParamField path="DSTACK_SERVER_BACKGROUND_PROCESSING_DISABLED" type="string">
+  Set to any value to disable background job processing. Useful for running only the web frontend and API server.
+</ParamField>
+
+## CLI environment variables
+
+The following variables configure CLI behavior.
+
+<ParamField path="DSTACK_CLI_LOG_LEVEL" type="string">
+  Logging level for CLI stdout output. Defaults to `INFO`.
+
+  ```shell
+  DSTACK_CLI_LOG_LEVEL=debug dstack apply -f .dstack.yml
+  ```
+</ParamField>
+
+<ParamField path="DSTACK_CLI_FILE_LOG_LEVEL" type="string">
+  Logging level for CLI log files stored in `~/.dstack/logs/cli/`. Defaults to `DEBUG`.
+</ParamField>
+
+<ParamField path="DSTACK_PROJECT" type="string">
+  Default project to use. Same effect as `--project`. Defaults to `None`.
+</ParamField>
+
+---
+
+<CardGroup cols={2}>
+  <Card title="dstack.yml reference" href="/reference/dstack-yml">
+    All configuration types: dev-environment, task, service, fleet, volume, and gateway.
+  </Card>
+  <Card title="profiles.yml reference" href="/reference/profiles-yml">
+    Set default run parameters and reusable profiles.
+  </Card>
+</CardGroup>

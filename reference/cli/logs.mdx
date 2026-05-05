@@ -1,0 +1,91 @@
+---
+title: "dstack logs: stream output from a dstack run"
+description: "Print or stream the output of a named dstack run. Supports diagnostic logs, replica and job selection, and filtering by timestamp or duration."
+---
+
+`dstack logs` streams the output of a named run to stdout. By default it prints the standard output of replica 0, job 0 from the point the run started. Use `--since` to limit output to recent entries, `--diagnose` to read the run's diagnostic (system-level) logs instead of application output, and `--replica` or `--job` to select a specific replica or job within a multi-replica or distributed run.
+
+## Synopsis
+
+```bash
+dstack logs RUN_NAME [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="RUN_NAME" type="string" required>
+  The name of the run whose logs you want to view. Use `dstack ps` to list available runs.
+</ParamField>
+
+## Options
+
+<ParamField path="-d, --diagnose" type="boolean">
+  Show the run's diagnostic logs instead of its application output. Diagnostic logs contain provisioning events and infrastructure-level messages.
+</ParamField>
+
+<ParamField path="--replica" type="number" default="0">
+  The replica number to retrieve logs for. Relevant for service runs with multiple replicas.
+</ParamField>
+
+<ParamField path="--job" type="number" default="0">
+  The job number inside the selected replica to retrieve logs for. Relevant for distributed runs.
+</ParamField>
+
+<ParamField path="--since" type="string">
+  Show only log entries newer than the specified point in time. Accepts a duration relative to now (e.g. `10s`, `5m`, `1d`) or an RFC 3339 timestamp (e.g. `2023-09-24T15:30:00Z`).
+</ParamField>
+
+<ParamField path="--project" type="string">
+  The project the run belongs to. Defaults to `$DSTACK_PROJECT`.
+</ParamField>
+
+## Examples
+
+Stream the full output of a run named `streamlit`:
+
+```bash
+dstack logs streamlit
+```
+
+```
+  Welcome to Streamlit. Check out our demo in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://10.0.0.5:8501
+```
+
+Show only log entries from the last 5 minutes:
+
+```bash
+dstack logs streamlit --since 5m
+```
+
+Show diagnostic (provisioning) logs for a failed run:
+
+```bash
+dstack logs my-run -d
+```
+
+```
+2024-03-01T12:00:00Z Pulling image dstackai/base:py3.11-0.6-cuda-12.1...
+2024-03-01T12:01:30Z Image pulled successfully
+2024-03-01T12:01:31Z Starting container...
+```
+
+Retrieve logs from replica 1 of a multi-replica service:
+
+```bash
+dstack logs my-service --replica 1
+```
+
+Retrieve logs from job 2 inside replica 0 of a distributed task:
+
+```bash
+dstack logs distributed-task --job 2
+```
+
+Show logs newer than a specific UTC timestamp:
+
+```bash
+dstack logs my-run --since 2024-01-15T08:00:00Z
+```

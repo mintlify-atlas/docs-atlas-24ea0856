@@ -1,0 +1,268 @@
+---
+title: "Volumes: Persistent Storage Across dstack Runs and Services"
+description: "Volumes persist data across dev environments, tasks, and services. Use network volumes for durable cloud storage, or instance volumes for caching and NFS."
+---
+
+Volumes enable data persistence between runs of dev environments, tasks, and services. Without volumes, data written inside a container is lost when the run ends. dstack supports two kinds of volumes: **network volumes**, which are provisioned via cloud backends and reliably persist data, and **instance volumes**, which bind host directories to container paths and are useful for caching or for on-prem SSH fleets with mounted network storage.
+
+## Network volumes
+
+Network volumes are provisioned via cloud backends and mounted to specific container directories. They are ideal for storing model weights, datasets, checkpoints, and other data that must survive across multiple runs.
+
+<Note>
+  Network volumes are currently supported for the `aws`, `gcp`, `runpod`, and `kubernetes` backends.
+</Note>
+
+### Create a network volume
+
+Define a volume configuration in a YAML file ending with `.dstack.yml`:
+
+```yaml volume.dstack.yml
+type: volume
+# Name of the volume
+name: my-volume
+
+# Volumes are bound to a specific backend and region
+backend: aws
+region: eu-central-1
+
+# Required size
+size: 100GB
+```
+
+<Accordion title="Kubernetes volumes">
+  With the `kubernetes` backend, `region` is not required. Optionally specify `storage_class_name` and `access_modes`:
+
+  ```yaml volume.dstack.yml
+  type: volume
+  backend: kubernetes
+  name: my-volume
+
+  size: 100GB
+  ```
+
+  This creates a `PersistentVolumeClaim`. If `storage_class_name` is omitted, the decision is delegated to the `DefaultStorageClass` admission controller. If `access_modes` is omitted, it defaults to `[ReadWriteOnce]`. To attach to multiple runs simultaneously, set it to `[ReadWriteMany]`.
+</Accordion>
+
+Pass the configuration to `dstack apply`:
+
+```shell
+$ dstack apply -f volume.dstack.yml
+Volume my-volume does not exist yet. Create the volume? [y/n]: y
+
+ NAME       BACKEND  REGION        STATUS     CREATED
+ my-volume  aws      eu-central-1  submitted  now
+```
+
+When dstack creates a new network volume, it automatically creates an `ext4` filesystem on it.
+
+#### Register existing volumes
+
+To reuse a volume you created manually, specify its ID with `volume_id`:
+
+```yaml volume.dstack.yml
+type: volume
+name: my-volume
+
+backend: aws
+region: eu-central-1
+
+# The ID of the existing volume in AWS
+volume_id: vol1235
+```
+
+If you register an existing volume, you must ensure it already has a filesystem.
+
+<Accordion title="Kubernetes: reuse an existing PVC">
+  Specify the claim name with `claim_name`:
+
+  ```yaml volume.dstack.yml
+  type: volume
+  backend: kubernetes
+  name: my-volume
+
+  claim_name: existing-pvc
+  ```
+</Accordion>
+
+### Attach a network volume
+
+Attach volumes to dev environments, tasks, or services using the `volumes` property:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode-vol
+
+ide: vscode
+
+# Map the volume name to a path inside the container
+volumes:
+  - name: my-volume
+    path: /volume_data
+
+# Short syntax is also accepted:
+# volumes:
+#   - my-volume:/volume_data
+```
+
+The volume contents are available at `/volume_data` inside the container and persist across runs.
+
+<Accordion title="Multiple regions or backends">
+  If you're not sure which region will be available, specify multiple volumes for the same path. dstack will attach one based on the run's backend and region:
+
+  ```yaml
+  volumes:
+    - name: [my-aws-eu-west-1-volume, my-aws-us-east-1-volume]
+      path: /volume_data
+  ```
+</Accordion>
+
+<Accordion title="Distributed tasks with per-node volumes">
+  For single-attach volumes (e.g., AWS EBS) in distributed tasks, use `dstack` variable interpolation to assign a unique volume to each node:
+
+  ```yaml
+  type: task
+  nodes: 8
+  commands:
+    - ...
+  volumes:
+    - name: data-volume-${{ dstack.node_rank }}
+      path: /volume_data
+  ```
+
+  Create volumes for all nodes in one command:
+
+  ```shell
+  for i in {0..7}; do dstack apply -f vol.dstack.yml -n data-volume-$i -y; done
+  ```
+</Accordion>
+
+### Detach a volume
+
+dstack automatically detaches volumes from instances when a run stops.
+
+<Warning>
+  In some clouds (e.g., AWS), a volume may get stuck in the `detaching` state. You can abort the run to trigger a force detach. dstack also force-detaches stuck volumes automatically after `stop_duration`. Force detaching is a last resort and may corrupt the filesystem — contact your cloud provider if this happens regularly.
+</Warning>
+
+### Manage network volumes
+
+#### List volumes
+
+```shell
+$ dstack volume list
+NAME        BACKEND  REGION        STATUS  CREATED
+ my-volume  aws      eu-central-1  active  3 weeks ago
+```
+
+#### Delete a volume
+
+Delete a volume when it is not attached to any active run:
+
+```shell
+$ dstack delete -f vol.dstack.yml
+```
+
+Or by name: `dstack volume delete <name>`.
+
+If the volume was created by dstack, it is physically destroyed along with its data. If you registered an existing volume, dstack de-registers it but the underlying cloud volume and data are preserved.
+
+### FAQs
+
+<AccordionGroup>
+  <Accordion title="Can I use a network volume across backends?">
+    No. Network volumes are backed by cloud disks and can only be used within the same cloud. To share data across backends, use object storage or replicate to multiple volumes.
+  </Accordion>
+  <Accordion title="Can I use a network volume across regions?">
+    Typically no — volumes are tied to specific regions (and sometimes availability zones). To avoid restricting a run to one region, create separate volumes per region and specify them for the same mount point.
+  </Accordion>
+  <Accordion title="Can I attach a volume to multiple runs simultaneously?">
+    Yes, but only on the `runpod` backend. Other backends do not support multi-attach.
+  </Accordion>
+</AccordionGroup>
+
+## Instance volumes
+
+Instance volumes bind a directory on the host instance to a path inside the container. Data persists only if the run executes on the same instance. They are most useful as package/model caches for cloud fleets, or as durable storage when the host has a mounted network filesystem (e.g., NFS via SSH fleets).
+
+<Note>
+  Instance volumes are supported for all backends except `runpod` and `vastai`, and can be used with [SSH fleets](/concepts/fleets).
+</Note>
+
+### Attach an instance volume
+
+Specify `instance_path` and `path` in the `volumes` property:
+
+```yaml .dstack.yml
+type: dev-environment
+name: vscode-vol
+
+ide: vscode
+
+# Map a host directory to a container path
+volumes:
+  - instance_path: /mnt/volume
+    path: /volume_data
+
+# Short syntax:
+# volumes:
+#   - /mnt/volume:/volume_data
+```
+
+<Note>
+  Since cloud instances may be interrupted or replaced, instance volume data is not guaranteed to persist. Use instance volumes only for caching, or when the host path is backed by durable network storage.
+</Note>
+
+<Accordion title="Optional instance volumes">
+  Mark a volume as `optional` if it is not critical. The run will proceed on backends that don't support instance volumes, but the volume is mounted when supported:
+
+  ```yaml .dstack.yml
+  type: task
+
+  volumes:
+    - instance_path: /dstack-cache
+      path: /root/.cache/
+      optional: true
+  ```
+</Accordion>
+
+### Use instance volumes for caching
+
+If a task regularly installs packages with `pip`, mount the pip cache directory to the host for reuse across runs:
+
+```yaml .dstack.yml
+type: task
+
+volumes:
+  - /dstack-cache/pip:/root/.cache/pip
+```
+
+Each run that lands on the same instance will reuse the cached packages, significantly reducing startup time.
+
+### Use instance volumes with SSH fleets
+
+On-prem servers in an [SSH fleet](/concepts/fleets) often have network storage mounted (e.g., NFS or SMB). Map those mount points via instance volumes to ensure data durability:
+
+```yaml .dstack.yml
+type: task
+
+volumes:
+  - /mnt/nfs-storage:/storage
+```
+
+As long as the NFS share is mounted at `/mnt/nfs-storage` on all fleet hosts, the data at `/storage` inside the container is reliably persisted.
+
+<CardGroup cols={2}>
+  <Card title="Dev environments" href="/concepts/dev-environments" icon="laptop">
+    Attach volumes to remote development sessions.
+  </Card>
+  <Card title="Tasks" href="/concepts/tasks" icon="play">
+    Persist checkpoints and datasets between training runs.
+  </Card>
+  <Card title="Services" href="/concepts/services" icon="globe">
+    Cache model weights to speed up service startup.
+  </Card>
+  <Card title="Fleets" href="/concepts/fleets" icon="server">
+    Configure SSH fleets to use mounted network storage.
+  </Card>
+</CardGroup>

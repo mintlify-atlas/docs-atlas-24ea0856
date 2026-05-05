@@ -1,0 +1,84 @@
+---
+title: "dstack: GPU Orchestration for AI Workloads"
+description: "dstack is a vendor-agnostic control plane for provisioning and orchestrating GPU compute across clouds, Kubernetes, and bare metal servers."
+---
+
+dstack is an open-source platform that lets you manage GPU infrastructure and run AI workloads — training jobs, inference services, and dev environments — across any cloud provider, Kubernetes cluster, or on-prem server from a single unified interface.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the dstack server and CLI, then connect it to your compute infrastructure
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Create your first fleet and submit a workload in minutes
+  </Card>
+  <Card title="Core Concepts" icon="layer-group" href="/concepts/fleets">
+    Understand fleets, tasks, services, dev environments, and volumes
+  </Card>
+  <Card title="Backends" icon="cloud" href="/concepts/backends">
+    Connect AWS, GCP, Azure, Kubernetes, and 10+ other providers
+  </Card>
+</CardGroup>
+
+## What is dstack?
+
+dstack acts as a unified control plane that sits on top of your GPU infrastructure. Instead of writing provider-specific code or managing Kubernetes manifests directly, you define your workloads in simple YAML configuration files and let dstack handle provisioning, scheduling, networking, and lifecycle management.
+
+<CardGroup cols={3}>
+  <Card title="Fleets" icon="server" href="/concepts/fleets">
+    Manage pools of cloud VMs or on-prem SSH servers as unified compute clusters
+  </Card>
+  <Card title="Tasks" icon="terminal" href="/concepts/tasks">
+    Run training jobs, batch processing, and distributed workloads across multiple nodes
+  </Card>
+  <Card title="Services" icon="globe" href="/concepts/services">
+    Deploy models and web apps as scalable, auto-scaling HTTPS endpoints
+  </Card>
+  <Card title="Dev Environments" icon="code" href="/concepts/dev-environments">
+    Spin up GPU-backed VS Code or JupyterLab environments with a single command
+  </Card>
+  <Card title="Volumes" icon="database" href="/concepts/volumes">
+    Persist data across runs with network and instance volumes
+  </Card>
+  <Card title="Gateways" icon="network-wired" href="/concepts/gateways">
+    Route external traffic to services with custom domains and TLS
+  </Card>
+</CardGroup>
+
+## Supported accelerators
+
+dstack works with NVIDIA, AMD, Google TPU, and Tenstorrent accelerators out of the box — and handles GPU detection, driver compatibility, and resource scheduling automatically.
+
+## Supported backends
+
+<CardGroup cols={2}>
+  <Card title="VM-based clouds" icon="cloud-arrow-up" href="/concepts/backends#vm-based">
+    AWS, GCP, Azure, Lambda, Nebius, Crusoe, Digital Ocean, OCI, Vultr, and more — dstack provisions VMs directly
+  </Card>
+  <Card title="Container-based" icon="cubes" href="/concepts/backends#container-based">
+    Kubernetes clusters (on-prem or managed) and Runpod / Vast.ai — dstack schedules containers
+  </Card>
+  <Card title="SSH fleets" icon="terminal" href="/concepts/fleets#ssh-fleets">
+    Connect any on-prem server over SSH — no backend configuration required
+  </Card>
+  <Card title="AI agent skills" icon="robot" href="/installation#install-agent-skills">
+    Let Claude, Codex, or Cursor manage fleets and workloads on your behalf
+  </Card>
+</CardGroup>
+
+## Get started
+
+<Steps>
+  <Step title="Install and launch the server">
+    Install dstack with `pip` or `uv` and start the server. See [Installation](/installation).
+  </Step>
+  <Step title="Configure a backend">
+    Connect your cloud provider or Kubernetes cluster by editing `~/.dstack/server/config.yml`. See [Backends](/concepts/backends).
+  </Step>
+  <Step title="Create a fleet">
+    Define a fleet YAML to provision your compute pool. See [Fleets](/concepts/fleets).
+  </Step>
+  <Step title="Submit a workload">
+    Run `dstack apply -f your-config.dstack.yml` to launch a task, service, or dev environment. See [Quickstart](/quickstart).
+  </Step>
+</Steps>

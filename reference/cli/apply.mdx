@@ -1,0 +1,236 @@
+---
+title: "dstack apply: create and update dstack resources"
+description: "Apply a configuration file to create or update a dstack resource. Supports runs, fleets, volumes, and gateways with in-place updates or re-creation when needed."
+---
+
+`dstack apply` reads a YAML configuration file and creates the described resource if it does not exist, or updates it in-place if it does. When an in-place update is not possible — for example, if a run's configuration changed in a way that requires re-provisioning — `dstack apply` stops the existing resource and re-creates it. Before applying a run configuration that mounts a Git repository, run `dstack init` first, pass a repo with `-P`, or use `--no-repo` if no repository is needed.
+
+## Synopsis
+
+```bash
+dstack apply [OPTIONS] [-h [TYPE]]
+```
+
+## Options
+
+<ParamField path="-f, --file" type="string">
+  Path to the configuration file. Pass `-` to read from stdin (requires `--yes`). Defaults to `$PWD/.dstack.yml`.
+</ParamField>
+
+<ParamField path="-y, --yes" type="boolean">
+  Skip the confirmation prompt and apply immediately.
+</ParamField>
+
+<ParamField path="--force" type="boolean">
+  Force apply even when no configuration changes are detected.
+</ParamField>
+
+<ParamField path="-d, --detach" type="boolean">
+  Submit the configuration and exit immediately without streaming logs or attaching to the run.
+</ParamField>
+
+<ParamField path="-v, --verbose" type="boolean">
+  Show all plan properties in the preview, including those that hold default values.
+</ParamField>
+
+<ParamField path="--project" type="string">
+  The project to apply the configuration in. Defaults to `$DSTACK_PROJECT`.
+</ParamField>
+
+<ParamField path="-h [TYPE], --help [TYPE]" type="string">
+  Show help and exit. Pass a configuration type (e.g. `task`, `service`, `dev-environment`, `fleet`, `volume`, `gateway`) to show type-specific options alongside the common options.
+</ParamField>
+
+## Run options
+
+These options apply when the configuration type is `task`, `service`, or `dev-environment`.
+
+<ParamField path="-n, --name" type="string">
+  Name to assign to the run. If omitted, dstack assigns a random name.
+</ParamField>
+
+<ParamField path="-e, --env" type="string">
+  Set an environment variable in the form `KEY=VALUE` or `KEY` (reads value from the local environment). Repeatable.
+</ParamField>
+
+<ParamField path="--ssh-identity" type="string">
+  Path to a private SSH key to use for SSH tunneling instead of the default `~/.dstack/ssh/id_rsa`.
+</ParamField>
+
+<ParamField path="--max-offers" type="number" default="3">
+  Number of instance offers to display in the run plan preview.
+</ParamField>
+
+<ParamField path="-p, --port" type="string">
+  Exposed port or local-to-container port mapping (e.g. `8080` or `9000:8080`). Repeatable. Applies to `task` and `dev-environment` configurations.
+</ParamField>
+
+<ParamField path="--host" type="string" default="localhost">
+  Local address to bind when forwarding ports.
+</ParamField>
+
+### Resource options
+
+<ParamField path="--cpu" type="string">
+  CPU request in the format `ARCH:COUNT`. Both parts are optional, e.g. `x86:4` or `8`.
+</ParamField>
+
+<ParamField path="--gpu" type="string">
+  GPU request in the format `NAME:COUNT:MEMORY`. All parts are optional, e.g. `A100:1:80GB` or `H100`.
+</ParamField>
+
+<ParamField path="--memory" type="string">
+  RAM range request, e.g. `128GB..256GB` or `64GB..`.
+</ParamField>
+
+<ParamField path="--disk" type="string">
+  Disk size range request, e.g. `100GB..` or `200GB..500GB`.
+</ParamField>
+
+### Profile options
+
+<ParamField path="--profile" type="string">
+  Name of the profile from `profiles.yml` to apply. Defaults to `$DSTACK_PROFILE`.
+</ParamField>
+
+<ParamField path="--max-price" type="number">
+  Maximum price per hour in USD. Instances above this price are excluded.
+</ParamField>
+
+<ParamField path="--max-duration" type="string">
+  Maximum run duration, e.g. `2h`, `30m`, or `1d`.
+</ParamField>
+
+<ParamField path="-b, --backend" type="string">
+  Restrict provisioning to specific backends. Repeatable.
+</ParamField>
+
+<ParamField path="-r, --region" type="string">
+  Restrict provisioning to specific regions. Repeatable.
+</ParamField>
+
+<ParamField path="--instance-type" type="string">
+  Cloud-specific instance type name(s) to try. Repeatable.
+</ParamField>
+
+### Fleet options
+
+<ParamField path="--fleet" type="string">
+  Restrict the run to a specific fleet. Repeatable.
+</ParamField>
+
+<ParamField path="-R, --reuse" type="boolean">
+  Reuse an existing idle instance from a fleet rather than provisioning a new one.
+</ParamField>
+
+<ParamField path="--dont-destroy" type="boolean">
+  Keep the provisioned instance running after the run finishes instead of terminating it.
+</ParamField>
+
+<ParamField path="--idle-duration" type="string">
+  How long to keep a newly provisioned instance idle before terminating it, e.g. `10m` or `1h`.
+</ParamField>
+
+### Spot policy options
+
+<ParamField path="--spot" type="boolean">
+  Consider only spot instances.
+</ParamField>
+
+<ParamField path="--on-demand" type="boolean">
+  Consider only on-demand instances.
+</ParamField>
+
+<ParamField path="--spot-auto" type="boolean">
+  Consider both spot and on-demand instances.
+</ParamField>
+
+<ParamField path="--spot-policy" type="string">
+  Spot policy: `spot`, `on-demand`, or `auto`.
+</ParamField>
+
+### Retry policy options
+
+<ParamField path="--retry" type="boolean">
+  Enable automatic retry on failure.
+</ParamField>
+
+<ParamField path="--no-retry" type="boolean">
+  Disable automatic retry on failure.
+</ParamField>
+
+<ParamField path="--retry-duration" type="string">
+  Maximum total duration to keep retrying, e.g. `10m` or `2h`.
+</ParamField>
+
+### Repo options
+
+<ParamField path="-P, --repo" type="string">
+  The repository to use for the run. Accepts a local directory path or a Git URL.
+</ParamField>
+
+<ParamField path="--repo-branch" type="string">
+  The Git branch to check out from the specified repo.
+</ParamField>
+
+<ParamField path="--repo-hash" type="string">
+  The Git commit hash to check out from the specified repo.
+</ParamField>
+
+<ParamField path="--no-repo" type="boolean">
+  Run without mounting any repository.
+</ParamField>
+
+<ParamField path="-t, --token" type="string">
+  OAuth token for authenticating with a private Git repository.
+</ParamField>
+
+<ParamField path="--git-identity" type="string">
+  Path to a private SSH key for authenticating with a private Git repository.
+</ParamField>
+
+## Examples
+
+Apply a configuration from the default `.dstack.yml` file in the current directory:
+
+```bash
+dstack apply
+```
+
+```
+ #  BACKEND  REGION    RESOURCES              SPOT  PRICE
+ 1  gcp      us-west4  2xCPU, 8GB, 100GB      yes   $0.010052
+ 2  azure    westeurope 2xCPU, 8GB, 100GB     yes   $0.0132
+
+Submit the run vscode? [y/n]: y
+
+Launching `vscode`...
+---> 100%
+
+To open in VS Code Desktop, use this link:
+  vscode://vscode-remote/ssh-remote+vscode/workflow
+```
+
+Apply a named configuration file and skip the confirmation prompt:
+
+```bash
+dstack apply -f task.dstack.yml -y
+```
+
+Apply a task, override its GPU requirement, and detach immediately:
+
+```bash
+dstack apply -f task.dstack.yml --gpu H100 -d
+```
+
+Submit a run with a specific run name and a custom environment variable:
+
+```bash
+dstack apply -f .dstack.yml -n my-run -e BATCH_SIZE=32
+```
+
+Read a configuration from stdin:
+
+```bash
+cat .dstack.yml | dstack apply -f - -y
+```

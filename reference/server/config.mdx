@@ -1,0 +1,438 @@
+---
+title: "dstack server/config.yml reference"
+description: "Reference for ~/.dstack/server/config.yml. Documents projects, backend credentials for AWS, GCP, Azure and others, encryption keys, and default permissions."
+---
+
+The `~/.dstack/server/config.yml` file controls server-level settings including which cloud backends are active, encryption at rest, and default user permissions. The server reads this file on startup; changes take effect after a restart.
+
+```yaml
+# Minimal example: one project with an AWS backend
+projects:
+  - name: main
+    backends:
+      - type: aws
+        regions: [us-east-1, eu-west-1]
+        creds:
+          type: access_key
+          access_key: AKIAIOSFODNN7EXAMPLE
+          secret_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+```
+
+---
+
+## Root fields
+
+<ParamField body="projects" type="ProjectConfig[]" required>
+  List of projects to create or update on startup. Each entry defines a project name and its associated backends. See [`projects[n]`](#projectsn).
+</ParamField>
+
+<ParamField body="encryption" type="EncryptionConfig">
+  Encryption at rest configuration. When present, dstack encrypts sensitive values (credentials, tokens) stored in the database. See [`encryption`](#encryption).
+</ParamField>
+
+<ParamField body="default_permissions" type="DefaultPermissions">
+  Server-wide permission defaults that control what non-admin users can do. See [`default_permissions`](#default_permissions).
+</ParamField>
+
+<ParamField body="plugins" type="string[]">
+  List of server-side plugin module names to enable on startup.
+</ParamField>
+
+---
+
+## `projects[n]`
+
+Each entry in the `projects` array maps to one dstack project.
+
+<ParamField body="name" type="string" required>
+  The project name. Must be unique across the server.
+</ParamField>
+
+<ParamField body="backends" type="BackendConfig[]">
+  List of cloud backends available to runs in this project. Each backend has a `type` discriminator field. See the per-backend sections below.
+</ParamField>
+
+---
+
+## `projects[n].backends`
+
+### `type: aws`
+
+Provisions instances using Amazon Web Services.
+
+<ParamField body="type" type="string" required>
+  Must be `"aws"`.
+</ParamField>
+
+<ParamField body="regions" type="string[]">
+  AWS regions to use (e.g. `[us-east-1, eu-west-1]`). When omitted, all regions are eligible.
+</ParamField>
+
+<ParamField body="creds" type="object" required>
+  AWS credentials. Two variants are supported.
+</ParamField>
+
+<AccordionGroup>
+  <Accordion title="creds type: access_key">
+    Authenticates with a static IAM access key pair.
+
+    <ParamField body="type" type="string" required>
+      Must be `"access_key"`.
+    </ParamField>
+
+    <ParamField body="access_key" type="string" required>
+      AWS access key ID.
+    </ParamField>
+
+    <ParamField body="secret_key" type="string" required>
+      AWS secret access key.
+    </ParamField>
+
+    ```yaml
+    creds:
+      type: access_key
+      access_key: AKIAIOSFODNN7EXAMPLE
+      secret_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    ```
+  </Accordion>
+
+  <Accordion title="creds type: default">
+    Uses the AWS default credential chain (environment variables, `~/.aws/credentials`, instance profile).
+
+    <ParamField body="type" type="string" required>
+      Must be `"default"`.
+    </ParamField>
+
+    ```yaml
+    creds:
+      type: default
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `type: gcp`
+
+Provisions instances using Google Cloud Platform.
+
+<ParamField body="type" type="string" required>
+  Must be `"gcp"`.
+</ParamField>
+
+<ParamField body="project_id" type="string" required>
+  GCP project ID.
+</ParamField>
+
+<ParamField body="regions" type="string[]">
+  GCP regions to use (e.g. `[us-central1, europe-west4]`).
+</ParamField>
+
+<ParamField body="creds" type="object" required>
+  GCP credentials. Two variants are supported.
+</ParamField>
+
+<AccordionGroup>
+  <Accordion title="creds type: service_account">
+    Authenticates with a service account JSON key file.
+
+    <ParamField body="type" type="string" required>
+      Must be `"service_account"`.
+    </ParamField>
+
+    <ParamField body="filename" type="string">
+      Path to the service account JSON file.
+    </ParamField>
+
+    <ParamField body="data" type="string">
+      Service account JSON contents as a single-line string. Generate with `cat key.json | jq -c | jq -R`.
+    </ParamField>
+
+    ```yaml
+    creds:
+      type: service_account
+      filename: /home/user/.config/gcloud/my-sa.json
+    ```
+  </Accordion>
+
+  <Accordion title="creds type: default">
+    Uses Application Default Credentials (ADC).
+
+    <ParamField body="type" type="string" required>
+      Must be `"default"`.
+    </ParamField>
+
+    ```yaml
+    creds:
+      type: default
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `type: azure`
+
+Provisions instances using Microsoft Azure.
+
+<ParamField body="type" type="string" required>
+  Must be `"azure"`.
+</ParamField>
+
+<ParamField body="tenant_id" type="string" required>
+  Azure Active Directory tenant ID.
+</ParamField>
+
+<ParamField body="subscription_id" type="string" required>
+  Azure subscription ID.
+</ParamField>
+
+<ParamField body="regions" type="string[]">
+  Azure regions to use (e.g. `[eastus, westeurope]`).
+</ParamField>
+
+<ParamField body="creds" type="object" required>
+  Azure credentials. Two variants are supported.
+</ParamField>
+
+<AccordionGroup>
+  <Accordion title="creds type: client">
+    Authenticates with a service principal client secret.
+
+    <ParamField body="type" type="string" required>
+      Must be `"client"`.
+    </ParamField>
+
+    <ParamField body="client_id" type="string" required>
+      Service principal application (client) ID.
+    </ParamField>
+
+    <ParamField body="client_secret" type="string" required>
+      Service principal client secret.
+    </ParamField>
+
+    ```yaml
+    creds:
+      type: client
+      client_id: 00000000-0000-0000-0000-000000000000
+      client_secret: your-client-secret
+    ```
+  </Accordion>
+
+  <Accordion title="creds type: default">
+    Uses the Azure default credential chain (environment, managed identity, CLI).
+
+    <ParamField body="type" type="string" required>
+      Must be `"default"`.
+    </ParamField>
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `type: lambda`
+
+Provisions GPU instances from Lambda Cloud.
+
+<ParamField body="type" type="string" required>
+  Must be `"lambda"`.
+</ParamField>
+
+<ParamField body="regions" type="string[]">
+  Lambda regions to use.
+</ParamField>
+
+<ParamField body="creds" type="object" required>
+  Lambda credentials.
+</ParamField>
+
+<ParamField body="creds.type" type="string" required>
+  Must be `"api_key"`.
+</ParamField>
+
+<ParamField body="creds.api_key" type="string" required>
+  Lambda Cloud API key.
+</ParamField>
+
+```yaml
+- type: lambda
+  regions: [us-west-1]
+  creds:
+    type: api_key
+    api_key: your-lambda-api-key
+```
+
+---
+
+### `type: runpod`
+
+Provisions GPU instances from RunPod.
+
+<ParamField body="type" type="string" required>
+  Must be `"runpod"`.
+</ParamField>
+
+<ParamField body="creds.type" type="string" required>
+  Must be `"api_key"`.
+</ParamField>
+
+<ParamField body="creds.api_key" type="string" required>
+  RunPod API key.
+</ParamField>
+
+```yaml
+- type: runpod
+  creds:
+    type: api_key
+    api_key: your-runpod-api-key
+```
+
+---
+
+### `type: vastai`
+
+Provisions GPU instances from Vast.ai.
+
+<ParamField body="type" type="string" required>
+  Must be `"vastai"`.
+</ParamField>
+
+<ParamField body="creds.type" type="string" required>
+  Must be `"api_key"`.
+</ParamField>
+
+<ParamField body="creds.api_key" type="string" required>
+  Vast.ai API key.
+</ParamField>
+
+---
+
+### `type: kubernetes`
+
+Provisions workloads on a Kubernetes cluster.
+
+<ParamField body="type" type="string" required>
+  Must be `"kubernetes"`.
+</ParamField>
+
+<ParamField body="kubeconfig" type="object" required>
+  Kubeconfig source.
+</ParamField>
+
+<ParamField body="kubeconfig.filename" type="string">
+  Path to the kubeconfig file.
+</ParamField>
+
+<ParamField body="kubeconfig.data" type="string">
+  Kubeconfig YAML as a single-line string. Generate with `yq -o=json ~/.kube/config | jq -c | jq -R`.
+</ParamField>
+
+<ParamField body="proxy_jump" type="object">
+  Optional SSH jump host for clusters behind a NAT or firewall.
+</ParamField>
+
+```yaml
+- type: kubernetes
+  kubeconfig:
+    filename: ~/.kube/config
+```
+
+---
+
+## `encryption`
+
+When the `encryption` block is present, dstack encrypts sensitive fields in the database using the first key in the `keys` list. Older keys remain in the list for decryption of previously encrypted data.
+
+<ParamField body="keys" type="EncryptionKeyConfig[]" required>
+  Ordered list of encryption keys. The first key is used for encryption; all keys are tried for decryption.
+</ParamField>
+
+### Key types
+
+<AccordionGroup>
+  <Accordion title="type: aes">
+    AES-256-GCM symmetric encryption.
+
+    <ParamField body="type" type="string" required>
+      Must be `"aes"`.
+    </ParamField>
+
+    <ParamField body="secret" type="string" required>
+      Base64-encoded 32-byte key. Generate with `openssl rand -base64 32`.
+    </ParamField>
+
+    ```yaml
+    encryption:
+      keys:
+        - type: aes
+          secret: base64encodedkeyhere==
+    ```
+  </Accordion>
+
+  <Accordion title="type: identity">
+    No-op key: data is stored unencrypted. Useful for disabling encryption while retaining the config structure.
+
+    <ParamField body="type" type="string" required>
+      Must be `"identity"`.
+    </ParamField>
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## `default_permissions`
+
+Controls what non-admin users are permitted to do across the server. All fields default to `true` except `allow_managers_manage_secrets`.
+
+<ParamField body="allow_non_admins_create_projects" type="boolean" default="true">
+  When `true`, regular users (non-global admins) can create and manage their own projects. Set to `false` to restrict project creation to global admins.
+</ParamField>
+
+<ParamField body="allow_non_admins_manage_ssh_fleets" type="boolean" default="true">
+  When `true`, regular project members (role: User) can add and delete SSH fleets. Set to `false` to restrict fleet management to project managers and admins.
+</ParamField>
+
+<ParamField body="allow_managers_manage_secrets" type="boolean" default="false">
+  When `true`, project managers can create, update, and delete project secrets. When `false`, only global admins can manage secrets.
+</ParamField>
+
+```yaml
+default_permissions:
+  allow_non_admins_create_projects: false
+  allow_non_admins_manage_ssh_fleets: true
+  allow_managers_manage_secrets: false
+```
+
+---
+
+## Complete example
+
+The following example configures two backends in a single project, enables AES encryption, and restricts project creation to admins.
+
+```yaml
+projects:
+  - name: main
+    backends:
+      - type: aws
+        regions: [us-east-1, eu-west-1]
+        creds:
+          type: access_key
+          access_key: AKIAIOSFODNN7EXAMPLE
+          secret_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      - type: gcp
+        project_id: my-gcp-project
+        regions: [us-central1]
+        creds:
+          type: service_account
+          filename: /home/user/.config/gcloud/sa.json
+
+encryption:
+  keys:
+    - type: aes
+      secret: base64encodedkeyhere==
+
+default_permissions:
+  allow_non_admins_create_projects: false
+  allow_non_admins_manage_ssh_fleets: true
+  allow_managers_manage_secrets: false
+```

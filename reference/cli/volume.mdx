@@ -1,0 +1,138 @@
+---
+title: "dstack volume: manage persistent storage volumes"
+description: "List, inspect, and delete dstack volumes. Volumes provide persistent storage that can be mounted into runs and survive run termination."
+---
+
+`dstack volume` is the command group for managing volumes — persistent storage resources that you can mount into dev environments, tasks, and services. Running `dstack volume` without a subcommand is equivalent to `dstack volume list`. Volumes are created with `dstack apply` using a `volume` configuration type; the commands here let you inspect and remove them.
+
+## Synopsis
+
+```bash
+dstack volume [SUBCOMMAND] [OPTIONS]
+```
+
+## Subcommands
+
+<AccordionGroup>
+  <Accordion title="dstack volume list">
+    Display all volumes in the current project.
+
+    ```bash
+    dstack volume list [OPTIONS]
+    ```
+
+    ### Options
+
+    <ParamField path="-w, --watch" type="boolean">
+      Refresh the listing in real time until interrupted with Ctrl+C.
+    </ParamField>
+
+    <ParamField path="-v, --verbose" type="boolean">
+      Show additional columns such as volume IDs and backend details.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project to list volumes in. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Example
+
+    ```bash
+    dstack volume list
+    ```
+
+    ```
+     VOLUME     BACKEND  REGION    STATUS  CREATED
+     my-volume  aws      us-east-1  active  2 hours ago
+    ```
+
+    Watch volume status update in real time:
+
+    ```bash
+    dstack volume list -w
+    ```
+  </Accordion>
+
+  <Accordion title="dstack volume delete">
+    Delete a volume. The underlying cloud storage resource is also deleted.
+
+    ```bash
+    dstack volume delete NAME [OPTIONS]
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string" required>
+      The name of the volume to delete.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="-y, --yes" type="boolean">
+      Skip the confirmation prompt.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the volume belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Examples
+
+    Delete a volume with a confirmation prompt:
+
+    ```bash
+    dstack volume delete my-volume
+    ```
+
+    ```
+    Delete the volume `my-volume`? [y/n]: y
+    Volume `my-volume` deleted
+    ```
+
+    Delete a volume without prompting:
+
+    ```bash
+    dstack volume delete my-volume -y
+    ```
+  </Accordion>
+
+  <Accordion title="dstack volume get">
+    Retrieve detailed information about a single volume in JSON format.
+
+    ```bash
+    dstack volume get NAME --json
+    ```
+
+    ### Arguments
+
+    <ParamField path="NAME" type="string" required>
+      The name of the volume.
+    </ParamField>
+
+    ### Options
+
+    <ParamField path="--json" type="boolean" required>
+      Output the volume as JSON. Currently required.
+    </ParamField>
+
+    <ParamField path="--project" type="string">
+      The project the volume belongs to. Defaults to `$DSTACK_PROJECT`.
+    </ParamField>
+
+    ### Example
+
+    ```bash
+    dstack volume get my-volume --json
+    ```
+
+    ```json
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "name": "my-volume",
+      "project_name": "main",
+      "status": "active",
+      "configuration": { ... }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
